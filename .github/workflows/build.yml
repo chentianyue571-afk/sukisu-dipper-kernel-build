@@ -9,6 +9,7 @@ permissions:
 env:
   KERNEL_REPOSITORY: duckyduckG/android_kernel_xiaomi_sdm845_419
   KERNEL_COMMIT: 8fd5fad77ae4b99c05188f80e2e1a0fbce3d3d6b
+  TECHPACK_COMMIT: 87be21823dfeeca50735ae575f2c1b51f348cb70
   CLANG_BRANCH: android16
   CLANG_VERSION: r547379
 
@@ -28,6 +29,14 @@ jobs:
           repository: ${{ env.KERNEL_REPOSITORY }}
           ref: ${{ env.KERNEL_COMMIT }}
           path: kernel
+          fetch-depth: 1
+
+      - name: Check out mi845 techpack
+        uses: actions/checkout@v4
+        with:
+          repository: duckyduckG/kernel_techpack_mi845_419
+          ref: ${{ env.TECHPACK_COMMIT }}
+          path: kernel/techpack/mi845
           fetch-depth: 1
 
       - name: Check out AnyKernel3

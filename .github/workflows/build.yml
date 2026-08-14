@@ -1,0 +1,136 @@
+name: Build SukiSU kernel for Xiaomi Mi 8
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  KERNEL_REPOSITORY: duckyduckG/android_kernel_xiaomi_sdm845_419
+  KERNEL_COMMIT: 8fd5fad77ae4b99c05188f80e2e1a0fbce3d3d6b
+  CLANG_BRANCH: android16
+  CLANG_VERSION: r547379
+
+jobs:
+  build-dipper:
+    name: Build dipper 4.19.325 SukiSU
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+
+    steps:
+      - name: Check out build files
+        uses: actions/checkout@v4
+
+      - name: Check out 4.19 SukiSU kernel
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.KERNEL_REPOSITORY }}
+          ref: ${{ env.KERNEL_COMMIT }}
+          path: kernel
+          fetch-depth: 1
+
+      - name: Check out AnyKernel3
+        uses: actions/checkout@v4
+        with:
+          repository: osm0sis/AnyKernel3
+          path: ak3
+          fetch-depth: 1
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            bc bison build-essential ccache curl flex gcc-aarch64-linux-gnu \
+            gcc-arm-linux-gnueabi libelf-dev libssl-dev lld llvm python3 zip
+
+      - name: Download Android 16 Clang
+        run: |
+          mkdir -p clang
+          curl -L --fail --retry 3 \
+            "https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/${CLANG_BRANCH}-release/clang-${CLANG_VERSION}.tar.gz" \
+            -o clang.tar.gz
+          tar -xzf clang.tar.gz -C clang
+          clang/bin/clang --version
+
+      - name: Configure dipper with SukiSU
+        working-directory: kernel
+        env:
+          ARCH: arm64
+          LLVM: 1
+          LLVM_IAS: 1
+          CROSS_COMPILE: aarch64-linux-gnu-
+          CROSS_COMPILE_ARM32: arm-linux-gnueabi-
+        run: |
+          export PATH="$GITHUB_WORKSPACE/clang/bin:/usr/lib/ccache:$PATH"
+          printf '\nCONFIG_KPM=y\n' >> arch/arm64/configs/vendor/extras/ksu.config
+          make O=out vendor/sdm845-perf_defconfig
+          make O=out vendor/xiaomi/sdm845-common.config
+          make O=out vendor/xiaomi/dipper.config
+          make O=out vendor/extras/ksu.config
+          make O=out olddefconfig
+
+          grep -qx 'CONFIG_KSU=y' out/.config
+          grep -qx 'CONFIG_KSU_MANUAL_HOOK=y' out/.config
+          grep -qx 'CONFIG_KSU_SUSFS=y' out/.config
+          grep -qx 'CONFIG_KPM=y' out/.config
+          ! grep -qx 'CONFIG_KPROBES=y' out/.config
+
+      - name: Build kernel
+        working-directory: kernel
+        env:
+          ARCH: arm64
+          LLVM: 1
+          LLVM_IAS: 1
+          CROSS_COMPILE: aarch64-linux-gnu-
+          CROSS_COMPILE_ARM32: arm-linux-gnueabi-
+          KBUILD_BUILD_USER: codex
+          KBUILD_BUILD_HOST: github-actions
+        run: |
+          export PATH="$GITHUB_WORKSPACE/clang/bin:/usr/lib/ccache:$PATH"
+          make -j"$(nproc)" O=out Image.gz-dtb
+
+      - name: Verify compiled kernel
+        working-directory: kernel
+        run: |
+          test -s out/arch/arm64/boot/Image
+          test -s out/arch/arm64/boot/Image.gz-dtb
+          strings out/arch/arm64/boot/Image > /tmp/dipper-kernel.strings
+          grep -m1 -E '/data/adb/ksud|KernelSU|SukiSU' /tmp/dipper-kernel.strings
+
+          {
+            echo "source=${KERNEL_REPOSITORY}"
+            echo "commit=${KERNEL_COMMIT}"
+            echo "device=dipper"
+            echo "kernel_release=$(make -s O=out ARCH=arm64 kernelrelease)"
+            echo "clang=$($GITHUB_WORKSPACE/clang/bin/clang --version | sed -n '1p')"
+            echo "CONFIG_KSU=$(sed -n 's/^CONFIG_KSU=//p' out/.config)"
+            echo "CONFIG_KSU_MANUAL_HOOK=$(sed -n 's/^CONFIG_KSU_MANUAL_HOOK=//p' out/.config)"
+            echo "CONFIG_KSU_SUSFS=$(sed -n 's/^CONFIG_KSU_SUSFS=//p' out/.config)"
+            echo "CONFIG_KPM=$(sed -n 's/^CONFIG_KPM=//p' out/.config)"
+            sha256sum out/arch/arm64/boot/Image.gz-dtb
+          } > "$GITHUB_WORKSPACE/BUILD_INFO.txt"
+          cat "$GITHUB_WORKSPACE/BUILD_INFO.txt"
+
+      - name: Package AnyKernel3 ZIP
+        run: |
+          cp kernel/out/arch/arm64/boot/Image.gz-dtb ak3/Image.gz-dtb
+          cp packaging/anykernel.sh ak3/anykernel.sh
+          rm -rf ak3/.git ak3/.github
+          find ak3 -name placeholder -delete
+          mkdir -p release
+          cd ak3
+          zip -qr9 ../release/SukiSU-dipper-Lineage23.2-4.19.325-AnyKernel3.zip . \
+            -x 'README.md' 'LICENSE'
+          cd ..
+          cp BUILD_INFO.txt release/
+          sha256sum release/SukiSU-dipper-Lineage23.2-4.19.325-AnyKernel3.zip \
+            | tee release/SHA256SUMS.txt
+
+      - name: Upload flashable kernel
+        uses: actions/upload-artifact@v4
+        with:
+          name: SukiSU-dipper-Lineage23.2-4.19.325
+          path: release/*
+          if-no-files-found: error
+          retention-days: 30

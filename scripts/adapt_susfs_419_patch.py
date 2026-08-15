@@ -95,7 +95,43 @@ def patch_namespace(kernel_root: Path) -> None:
 '''
     replace_once(path, anchor, replacement)
 
+    upgrade_legacy_mount_constants(kernel_root)
     upgrade_legacy_state_checks(kernel_root)
+
+
+def upgrade_legacy_mount_constants(kernel_root: Path) -> None:
+    files = [
+        "fs/namespace.c",
+        "fs/proc/fd.c",
+        "fs/proc_namespace.c",
+        "fs/statfs.c",
+    ]
+    replacements = {
+        "DEFAULT_SUS_MNT_ID": "DEFAULT_KSU_MNT_ID",
+        "DEFAULT_SUS_MNT_GROUP_ID": "DEFAULT_KSU_MNT_GROUP_ID",
+        "DEFAULT_SUS_MNT_ID_FOR_KSU_PROC_UNSHARE": "SUSFS_419_KSU_UNSHARE_MNT_ID",
+    }
+
+    path = kernel_root / "fs/namespace.c"
+    anchor = "#define CL_COPY_MNT_NS BIT(25) /* used by copy_mnt_ns() */\n"
+    replacement = anchor + "#define SUSFS_419_KSU_UNSHARE_MNT_ID 1000000\n"
+    replace_once(path, anchor, replacement)
+
+    for relative_path in files:
+        path = kernel_root / relative_path
+        source = path.read_text()
+        for old_name, new_name in replacements.items():
+            source = re.sub(rf"\b{old_name}\b", new_name, source)
+        path.write_text(source)
+
+    for relative_path in files:
+        source = (kernel_root / relative_path).read_text()
+        for legacy_name in replacements:
+            if re.search(rf"\b{legacy_name}\b", source):
+                raise SystemExit(
+                    f"{relative_path}: legacy SUSFS mount constant remains: "
+                    f"{legacy_name}"
+                )
 
 
 def upgrade_legacy_state_checks(kernel_root: Path) -> None:

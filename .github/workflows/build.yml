@@ -10,8 +10,9 @@ env:
   KERNEL_REPOSITORY: duckyduckG/android_kernel_xiaomi_sdm845_419
   KERNEL_COMMIT: 2e1cfd38e5f3b53351d3d59c797d14ff7f050611
   SUKISU_VERSION: v3.2.0
-  SUKISU_COMMIT: 0af1ab28450a1df548850b4a05ba82a5cbef478e
-  KERNELSU_COMPAT_COMMIT: b766b98513b5a7eb33bc1c4a76b5702bf1288f07
+  SUKISU_COMMIT: 97e1250d11c2e34ccea25b20d6e56321aa45eff4
+  SUSFS_COMMIT: 001e69919c6271f690fd00b17e4c721c9e599152
+  SUSFS_VERSION: v1.5.5
   ANYKERNEL_COMMIT: e4b1bb25ca2aabcfd57f694a5998d87130701b71
   CLANG_VERSION: r563880
 
@@ -37,16 +38,16 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: SukiSU-Ultra/SukiSU-Ultra
-          ref: ${{ env.SUKISU_VERSION }}
+          ref: ${{ env.SUKISU_COMMIT }}
           path: kernel/KernelSU
           fetch-depth: 1
 
-      - name: Check out legacy non-GKI SELinux compatibility source
+      - name: Check out SUSFS for Linux 4.19
         uses: actions/checkout@v4
         with:
-          repository: tiann/KernelSU
-          ref: ${{ env.KERNELSU_COMPAT_COMMIT }}
-          path: compat-kernelsu
+          repository: simonpunk/susfs4ksu
+          ref: ${{ env.SUSFS_COMMIT }}
+          path: susfs
           fetch-depth: 1
 
       - name: Check out pinned AnyKernel3
@@ -61,7 +62,7 @@ jobs:
         run: |
           test "$(git -C kernel rev-parse HEAD)" = "$KERNEL_COMMIT"
           test "$(git -C kernel/KernelSU rev-parse HEAD)" = "$SUKISU_COMMIT"
-          test "$(git -C compat-kernelsu rev-parse HEAD)" = "$KERNELSU_COMPAT_COMMIT"
+          test "$(git -C susfs rev-parse HEAD)" = "$SUSFS_COMMIT"
           test "$(git -C ak3 rev-parse HEAD)" = "$ANYKERNEL_COMMIT"
 
       - name: Install build dependencies
@@ -85,13 +86,17 @@ jobs:
           test -x clang/bin/clang
           clang/bin/clang --version
 
-      - name: Integrate SukiSU manual hooks
+      - name: Integrate SUSFS and SukiSU manual hooks
         working-directory: kernel
         run: |
+          cp "$GITHUB_WORKSPACE/susfs/kernel_patches/fs/susfs.c" fs/susfs.c
+          cp "$GITHUB_WORKSPACE/susfs/kernel_patches/include/linux/susfs.h" include/linux/susfs.h
+          cp "$GITHUB_WORKSPACE/susfs/kernel_patches/include/linux/susfs_def.h" include/linux/susfs_def.h
+          git apply --check "$GITHUB_WORKSPACE/susfs/kernel_patches/50_add_susfs_in_kernel-4.19.patch"
+          git apply "$GITHUB_WORKSPACE/susfs/kernel_patches/50_add_susfs_in_kernel-4.19.patch"
+
           ln -s ../KernelSU/kernel drivers/kernelsu
           printf '\nobj-$(CONFIG_KSU) += kernelsu/\n' >> drivers/Makefile
-          cp "$GITHUB_WORKSPACE/compat-kernelsu/kernel/selinux/sepolicy.c" \
-            KernelSU/kernel/selinux/sepolicy.c
           python3 - <<'PY'
           from pathlib import Path
 
@@ -103,138 +108,17 @@ jobs:
           head, tail = source.rsplit(anchor, 1)
           path.write_text(head + 'source "drivers/kernelsu/Kconfig"\n\n' + anchor + tail)
 
-          path = Path("KernelSU/kernel/ksu.c")
-          source = path.read_text()
-          anchor = "MODULE_IMPORT_NS(VFS_internal_I_am_really_a_filesystem_and_am_NOT_a_driver);"
-          if source.count(anchor) != 1:
-              raise SystemExit("SukiSU namespace import anchor changed")
-          replacement = "#ifdef MODULE_IMPORT_NS\n" + anchor + "\n#endif"
-          path.write_text(source.replace(anchor, replacement, 1))
-
-          path = Path("KernelSU/kernel/throne_comm.c")
-          source = path.read_text()
-          anchor = """static const struct proc_ops uid_scanner_proc_ops = {
-              .proc_open = uid_scanner_open,
-              .proc_read = seq_read,
-          \t.proc_write = uid_scanner_write,
-              .proc_lseek = seq_lseek,
-              .proc_release = single_release,
-          };
-          """
-          if source.count(anchor) != 1:
-              raise SystemExit("SukiSU proc_ops anchor changed")
-          replacement = """#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 6, 0)
-          static const struct proc_ops uid_scanner_proc_ops = {
-              .proc_open = uid_scanner_open,
-              .proc_read = seq_read,
-          \t.proc_write = uid_scanner_write,
-              .proc_lseek = seq_lseek,
-              .proc_release = single_release,
-          };
-          #else
-          static const struct file_operations uid_scanner_proc_ops = {
-              .open = uid_scanner_open,
-              .read = seq_read,
-          \t.write = uid_scanner_write,
-              .llseek = seq_lseek,
-              .release = single_release,
-          };
-          #endif
-          """
-          path.write_text(source.replace(anchor, replacement, 1))
-
-          path = Path("KernelSU/kernel/selinux/selinux.h")
-          source = path.read_text()
-          anchor = '#include "linux/version.h"\n'
-          if source.count(anchor) != 1:
-              raise SystemExit("SukiSU selinux.h version anchor changed")
-          compatibility = """
-
-          #if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0)) || defined(KSU_COMPAT_HAS_SELINUX_STATE)
-          #define KSU_COMPAT_USE_SELINUX_STATE
-          #endif
-          """
-          path.write_text(source.replace(anchor, anchor + compatibility, 1))
-
-          path = Path("KernelSU/kernel/selinux/rules.c")
-          source = path.read_text()
-          anchor = '#define SELINUX_POLICY_INSTEAD_SELINUX_SS'
-          replacement = """#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0)
-          #define SELINUX_POLICY_INSTEAD_SELINUX_SS
-          #endif"""
-          if source.count(anchor) != 1:
-              raise SystemExit("SukiSU SELinux policy selector anchor changed")
-          source = source.replace(anchor, replacement, 1)
-          anchor = """static struct policydb *get_policydb(void)
-          {
-          \tstruct policydb *db;
-          \tstruct selinux_policy *policy = selinux_state.policy;
-          \tdb = &policy->policydb;
-          \treturn db;
+          required = {
+              "KernelSU/kernel/Kconfig": "config KSU_SUSFS",
+              "KernelSU/kernel/core_hook.c": "CMD_SUSFS_SHOW_VERSION",
+              "KernelSU/kernel/Makefile": "SUSFS_VERSION",
+              "fs/Makefile": "CONFIG_KSU_SUSFS",
+              "fs/susfs.c": "susfs is initialized! version:",
+              "include/linux/susfs.h": '#define SUSFS_VERSION "v1.5.5"',
           }
-          """
-          replacement = """static struct policydb *get_policydb(void)
-          {
-          \tstruct policydb *db;
-          #ifdef KSU_COMPAT_USE_SELINUX_STATE
-          #ifdef SELINUX_POLICY_INSTEAD_SELINUX_SS
-          \tstruct selinux_policy *policy = rcu_dereference(selinux_state.policy);
-          \tdb = &policy->policydb;
-          #else
-          \tstruct selinux_ss *ss = rcu_dereference(selinux_state.ss);
-          \tdb = &ss->policydb;
-          #endif
-          #else
-          \tdb = &policydb;
-          #endif
-          \treturn db;
-          }
-          """
-          if source.count(anchor) != 1:
-              raise SystemExit("SukiSU get_policydb anchor changed")
-          path.write_text(source.replace(anchor, replacement, 1))
-
-          path = Path("KernelSU/kernel/core_hook.c")
-          source = path.read_text()
-          anchor = """static void ksu_umount_mnt(struct path *path, int flags)
-          {
-          \tint err = path_umount(path, flags);
-          \tif (err) {
-          \t\tpr_info("umount %s failed: %d\\n", path->dentry->d_iname, err);
-          \t}
-          }
-          """
-          replacement = """static void ksu_umount_mnt(struct path *path, int flags)
-          {
-          #if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 9, 0) || defined(KSU_UMOUNT)
-          \tint err = path_umount(path, flags);
-          \tif (err) {
-          \t\tpr_info("umount %s failed: %d\\n", path->dentry->d_iname, err);
-          \t}
-          #else
-          \tpath_put(path);
-          #endif
-          }
-          """
-          if source.count(anchor) != 1:
-              raise SystemExit("SukiSU path_umount anchor changed")
-          path.write_text(source.replace(anchor, replacement, 1))
-
-          objsec = Path("security/selinux/include/objsec.h").read_text()
-          if " current_sid(void)" not in objsec:
-              raise SystemExit("kernel current_sid compatibility anchor changed")
-          path = Path("KernelSU/kernel/Makefile")
-          source = path.read_text()
-          flag = "ccflags-y += -DKSU_COMPAT_HAS_CURRENT_SID"
-          if flag in source:
-              raise SystemExit("SukiSU current_sid compatibility flag already present")
-          security = Path("security/selinux/include/security.h").read_text()
-          state_flag = "ccflags-y += -DKSU_COMPAT_HAS_SELINUX_STATE"
-          if "struct selinux_state " not in security:
-              raise SystemExit("kernel selinux_state compatibility anchor changed")
-          if state_flag in source:
-              raise SystemExit("SukiSU selinux_state compatibility flag already present")
-          path.write_text(source + "\n" + flag + "\n" + state_flag + "\n")
+          for path, needle in required.items():
+              if needle not in Path(path).read_text():
+                  raise SystemExit(f"SUSFS integration check failed: {path}: {needle}")
           PY
           python3 "$GITHUB_WORKSPACE/scripts/apply_sukisu_manual_hooks.py"
 
@@ -257,6 +141,8 @@ jobs:
             --enable KSU_MANUAL_HOOK \
             --disable KSU_KPROBES_HOOK \
             --disable KSU_TRACEPOINT_HOOK \
+            --enable KSU_SUSFS \
+            --disable KSU_SUSFS_SUS_SU \
             --enable KPM \
             --enable KALLSYMS \
             --enable KALLSYMS_ALL
@@ -264,12 +150,13 @@ jobs:
 
           grep -qx 'CONFIG_KSU=y' out/.config
           grep -qx 'CONFIG_KSU_MANUAL_HOOK=y' out/.config
+          grep -qx 'CONFIG_KSU_SUSFS=y' out/.config
+          ! grep -qx 'CONFIG_KSU_SUSFS_SUS_SU=y' out/.config
           grep -qx 'CONFIG_KPM=y' out/.config
           grep -qx 'CONFIG_KALLSYMS=y' out/.config
           grep -qx 'CONFIG_KALLSYMS_ALL=y' out/.config
           ! grep -qx 'CONFIG_KSU_KPROBES_HOOK=y' out/.config
           ! grep -qx 'CONFIG_KSU_TRACEPOINT_HOOK=y' out/.config
-          ! grep -q '^CONFIG_KSU_SUSFS=' out/.config
 
       - name: Build kernel
         working-directory: kernel
@@ -292,19 +179,23 @@ jobs:
           test -s out/arch/arm64/boot/Image.gz-dtb
           strings out/arch/arm64/boot/Image > /tmp/dipper-kernel.strings
           grep -m1 -E '/data/adb/ksud|KernelSU|SukiSU' /tmp/dipper-kernel.strings
+          grep -m1 -F 'susfs is initialized! version:' /tmp/dipper-kernel.strings
+          grep -m1 -F "$SUSFS_VERSION" /tmp/dipper-kernel.strings
 
           {
             echo "source=${KERNEL_REPOSITORY}"
             echo "commit=${KERNEL_COMMIT}"
             echo "sukisu_version=${SUKISU_VERSION}"
             echo "sukisu_commit=${SUKISU_COMMIT}"
-            echo "kernelsu_compat_commit=${KERNELSU_COMPAT_COMMIT}"
+            echo "susfs_version=${SUSFS_VERSION}"
+            echo "susfs_commit=${SUSFS_COMMIT}"
             echo "anykernel_commit=${ANYKERNEL_COMMIT}"
             echo "device=dipper"
             echo "kernel_release=$(make -s O=out ARCH=arm64 kernelrelease)"
             echo "clang=$($GITHUB_WORKSPACE/clang/bin/clang --version | sed -n '1p')"
             echo "CONFIG_KSU=$(sed -n 's/^CONFIG_KSU=//p' out/.config)"
             echo "CONFIG_KSU_MANUAL_HOOK=$(sed -n 's/^CONFIG_KSU_MANUAL_HOOK=//p' out/.config)"
+            echo "CONFIG_KSU_SUSFS=$(sed -n 's/^CONFIG_KSU_SUSFS=//p' out/.config)"
             echo "CONFIG_KPM=$(sed -n 's/^CONFIG_KPM=//p' out/.config)"
             sha256sum out/arch/arm64/boot/Image.gz-dtb
           } > "$GITHUB_WORKSPACE/BUILD_INFO.txt"
@@ -318,17 +209,17 @@ jobs:
           find ak3 -name placeholder -delete
           mkdir -p release
           cd ak3
-          zip -qr9 ../release/SukiSU-dipper-Lineage23.2-exact-root-v3.zip . \
+          zip -qr9 ../release/SukiSU-dipper-Lineage23.2-SUSFS-v4.zip . \
             -x 'README.md' 'LICENSE'
           cd ..
           cp BUILD_INFO.txt release/
-          sha256sum release/SukiSU-dipper-Lineage23.2-exact-root-v3.zip \
+          sha256sum release/SukiSU-dipper-Lineage23.2-SUSFS-v4.zip \
             | tee release/SHA256SUMS.txt
 
       - name: Upload flashable kernel
         uses: actions/upload-artifact@v4
         with:
-          name: SukiSU-dipper-Lineage23.2-exact-root-v3
+          name: SukiSU-dipper-Lineage23.2-SUSFS-v4
           path: release/*
           if-no-files-found: error
           retention-days: 30

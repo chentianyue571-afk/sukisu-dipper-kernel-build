@@ -95,9 +95,16 @@ def patch_namespace(kernel_root: Path) -> None:
 '''
     replace_once(path, anchor, replacement)
 
+    patch_susfs_header_419(kernel_root)
     patch_susfs_fsnotify_419(kernel_root)
     upgrade_legacy_mount_constants(kernel_root)
     upgrade_legacy_state_checks(kernel_root)
+
+
+def patch_susfs_header_419(kernel_root: Path) -> None:
+    path = kernel_root / "include/linux/susfs_def.h"
+    anchor = "#include <linux/bits.h>\n"
+    replace_once(path, anchor, anchor + "#include <linux/cred.h>\n")
 
 
 def patch_susfs_fsnotify_419(kernel_root: Path) -> None:

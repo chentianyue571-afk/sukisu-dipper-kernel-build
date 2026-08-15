@@ -95,8 +95,57 @@ def patch_namespace(kernel_root: Path) -> None:
 '''
     replace_once(path, anchor, replacement)
 
+    patch_susfs_fsnotify_419(kernel_root)
     upgrade_legacy_mount_constants(kernel_root)
     upgrade_legacy_state_checks(kernel_root)
+
+
+def patch_susfs_fsnotify_419(kernel_root: Path) -> None:
+    path = kernel_root / "fs/susfs.c"
+    source = path.read_text()
+    pattern = re.compile(
+        r"static int susfs_handle_sdcard_inode_event\(struct fsnotify_mark \*mark, u32 mask,\n"
+        r"\s+struct inode \*inode, struct inode \*dir,\n"
+        r"\s+const struct qstr \*file_name, u32 cookie\)\n"
+        r"\{\n"
+        r"\tif \(!file_name \|\| file_name->len != 7 \|\|\n"
+        r'\t    memcmp\(file_name->name, "Android", 7\)\)\n'
+        r"\t\treturn 0;\n"
+    )
+    replacement = '''#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 10, 0)
+static int susfs_handle_sdcard_inode_event(struct fsnotify_group *group,
+											struct inode *inode, u32 mask,
+											const void *data, int data_type,
+											const unsigned char *file_name, u32 cookie,
+											struct fsnotify_iter_info *iter_info)
+{
+	if (!file_name || strcmp(file_name, "Android"))
+		return 0;
+#else
+static int susfs_handle_sdcard_inode_event(struct fsnotify_mark *mark, u32 mask,
+											struct inode *inode, struct inode *dir,
+											const struct qstr *file_name, u32 cookie)
+{
+	if (!file_name || file_name->len != 7 ||
+	    memcmp(file_name->name, "Android", 7))
+		return 0;
+#endif
+'''
+    source, count = pattern.subn(replacement, source)
+    if count != 1:
+        raise SystemExit(f"{path}: expected one fsnotify handler, found {count}")
+    path.write_text(source)
+
+    replace_once(
+        path,
+        "\t.handle_inode_event = susfs_handle_sdcard_inode_event,\n",
+        '''#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 10, 0)
+	.handle_event = susfs_handle_sdcard_inode_event,
+#else
+	.handle_inode_event = susfs_handle_sdcard_inode_event,
+#endif
+''',
+    )
 
 
 def upgrade_legacy_mount_constants(kernel_root: Path) -> None:

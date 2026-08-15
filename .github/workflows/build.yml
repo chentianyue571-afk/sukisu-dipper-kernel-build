@@ -10,6 +10,8 @@ env:
   KERNEL_REPOSITORY: duckyduckG/android_kernel_xiaomi_sdm845_419
   KERNEL_COMMIT: 8fd5fad77ae4b99c05188f80e2e1a0fbce3d3d6b
   TECHPACK_COMMIT: 87be21823dfeeca50735ae575f2c1b51f348cb70
+  QCOM_DTS_COMMIT: be1279422f14437df8c185f952b4139ff7e10157
+  XIAOMI_DTS_COMMIT: c573577e1fb2e92f36f9546d2e45738e618316af
   CLANG_BRANCH: android16
   CLANG_VERSION: r547379
 
@@ -37,6 +39,22 @@ jobs:
           repository: duckyduckG/kernel_techpack_mi845_419
           ref: ${{ env.TECHPACK_COMMIT }}
           path: kernel/techpack/mi845
+          fetch-depth: 1
+
+      - name: Check out Qualcomm SDM845 device trees
+        uses: actions/checkout@v4
+        with:
+          repository: duckyduckG/devicetree_qcom-sdm845_419
+          ref: ${{ env.QCOM_DTS_COMMIT }}
+          path: kernel/arch/arm64/boot/dts/qcom-sdm845
+          fetch-depth: 1
+
+      - name: Check out Xiaomi SDM845 device trees
+        uses: actions/checkout@v4
+        with:
+          repository: duckyduckG/devicetree_xiaomi_419
+          ref: ${{ env.XIAOMI_DTS_COMMIT }}
+          path: kernel/arch/arm64/boot/dts/xiaomi
           fetch-depth: 1
 
       - name: Check out AnyKernel3
@@ -110,6 +128,9 @@ jobs:
           {
             echo "source=${KERNEL_REPOSITORY}"
             echo "commit=${KERNEL_COMMIT}"
+            echo "techpack_commit=${TECHPACK_COMMIT}"
+            echo "qcom_dts_commit=${QCOM_DTS_COMMIT}"
+            echo "xiaomi_dts_commit=${XIAOMI_DTS_COMMIT}"
             echo "device=dipper"
             echo "kernel_release=$(make -s O=out ARCH=arm64 kernelrelease)"
             echo "clang=$($GITHUB_WORKSPACE/clang/bin/clang --version | sed -n '1p')"

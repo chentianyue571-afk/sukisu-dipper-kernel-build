@@ -3,7 +3,7 @@
 from pathlib import Path
 
 
-GUARD = "defined(CONFIG_KSU) && defined(CONFIG_KSU_SUSFS)"
+GUARD = "defined(CONFIG_KSU)"
 
 
 def replace_once(path: str, anchor: str, replacement: str) -> None:

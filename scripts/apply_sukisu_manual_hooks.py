@@ -86,6 +86,31 @@ extern int ksu_handle_stat(int *dfd,
  * vfs_statx - Get basic and extra attributes by filename
 """,
 )
+
+replace_once(
+    "kernel/sys.c",
+    "SYSCALL_DEFINE5(prctl, int, option, unsigned long, arg2, unsigned long, arg3,\n",
+    f"""#if {GUARD} && defined(CONFIG_KSU_SUSFS)
+extern int ksu_handle_susfs_prctl(int option, unsigned long cmd,
+                unsigned long arg3, unsigned long arg4, unsigned long arg5);
+#endif
+
+SYSCALL_DEFINE5(prctl, int, option, unsigned long, arg2, unsigned long, arg3,
+""",
+)
+replace_once(
+    "kernel/sys.c",
+    "{\n\tstruct task_struct *me = current;\n\tunsigned char comm[sizeof(me->comm)];\n\tlong error;\n",
+    f"""{{
+#if {GUARD} && defined(CONFIG_KSU_SUSFS)
+\tif (ksu_handle_susfs_prctl(option, arg2, arg3, arg4, arg5))
+\t\treturn 0;
+#endif
+\tstruct task_struct *me = current;
+\tunsigned char comm[sizeof(me->comm)];
+\tlong error;
+""",
+)
 replace_once(
     "fs/stat.c",
     "\tunsigned int lookup_flags = LOOKUP_FOLLOW | LOOKUP_AUTOMOUNT;\n\n\tif ((flags &",
@@ -126,6 +151,7 @@ checks = {
     "fs/exec.c": ["ksu_handle_execveat(&fd"],
     "fs/open.c": ["ksu_handle_faccessat(&dfd"],
     "fs/stat.c": ["ksu_handle_stat(&dfd"],
+    "kernel/sys.c": ["ksu_handle_susfs_prctl(option"],
 }
 for path, needles in checks.items():
     source = Path(path).read_text()

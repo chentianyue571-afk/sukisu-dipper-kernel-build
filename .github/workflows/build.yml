@@ -143,6 +143,57 @@ jobs:
           """
           path.write_text(source.replace(anchor, replacement, 1))
 
+          path = Path("KernelSU/kernel/selinux/selinux.h")
+          source = path.read_text()
+          anchor = '#include "linux/version.h"\n'
+          if source.count(anchor) != 1:
+              raise SystemExit("SukiSU selinux.h version anchor changed")
+          compatibility = """
+
+          #if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0)) || defined(KSU_COMPAT_HAS_SELINUX_STATE)
+          #define KSU_COMPAT_USE_SELINUX_STATE
+          #endif
+          """
+          path.write_text(source.replace(anchor, anchor + compatibility, 1))
+
+          path = Path("KernelSU/kernel/selinux/rules.c")
+          source = path.read_text()
+          anchor = '#define SELINUX_POLICY_INSTEAD_SELINUX_SS'
+          replacement = """#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0)
+          #define SELINUX_POLICY_INSTEAD_SELINUX_SS
+          #endif"""
+          if source.count(anchor) != 1:
+              raise SystemExit("SukiSU SELinux policy selector anchor changed")
+          source = source.replace(anchor, replacement, 1)
+          anchor = """static struct policydb *get_policydb(void)
+          {
+          \tstruct policydb *db;
+          \tstruct selinux_policy *policy = selinux_state.policy;
+          \tdb = &policy->policydb;
+          \treturn db;
+          }
+          """
+          replacement = """static struct policydb *get_policydb(void)
+          {
+          \tstruct policydb *db;
+          #ifdef KSU_COMPAT_USE_SELINUX_STATE
+          #ifdef SELINUX_POLICY_INSTEAD_SELINUX_SS
+          \tstruct selinux_policy *policy = rcu_dereference(selinux_state.policy);
+          \tdb = &policy->policydb;
+          #else
+          \tstruct selinux_ss *ss = rcu_dereference(selinux_state.ss);
+          \tdb = &ss->policydb;
+          #endif
+          #else
+          \tdb = &policydb;
+          #endif
+          \treturn db;
+          }
+          """
+          if source.count(anchor) != 1:
+              raise SystemExit("SukiSU get_policydb anchor changed")
+          path.write_text(source.replace(anchor, replacement, 1))
+
           objsec = Path("security/selinux/include/objsec.h").read_text()
           if " current_sid(void)" not in objsec:
               raise SystemExit("kernel current_sid compatibility anchor changed")
@@ -151,7 +202,13 @@ jobs:
           flag = "ccflags-y += -DKSU_COMPAT_HAS_CURRENT_SID"
           if flag in source:
               raise SystemExit("SukiSU current_sid compatibility flag already present")
-          path.write_text(source + "\n" + flag + "\n")
+          security = Path("security/selinux/include/security.h").read_text()
+          state_flag = "ccflags-y += -DKSU_COMPAT_HAS_SELINUX_STATE"
+          if "struct selinux_state " not in security:
+              raise SystemExit("kernel selinux_state compatibility anchor changed")
+          if state_flag in source:
+              raise SystemExit("SukiSU selinux_state compatibility flag already present")
+          path.write_text(source + "\n" + flag + "\n" + state_flag + "\n")
           PY
           python3 "$GITHUB_WORKSPACE/scripts/apply_sukisu_manual_hooks.py"
 

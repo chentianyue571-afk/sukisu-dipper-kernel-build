@@ -111,6 +111,17 @@ for call in (
 """,
     )
 
+replace_once(
+    "KernelSU/kernel/sulog/event.c",
+    "    #define USER_ARG_NULL user_arg_null_ptr()\n",
+    """#ifdef CONFIG_KSU_SUSFS
+    #define USER_ARG_NULL user_arg_null_ptr()
+#else
+    #define USER_ARG_NULL (*user_arg_null_ptr())
+#endif
+""",
+)
+
 checks = {
     "fs/exec.c": ["ksu_handle_execveat(&fd"],
     "fs/open.c": ["ksu_handle_faccessat(&dfd"],

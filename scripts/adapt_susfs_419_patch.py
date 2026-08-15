@@ -97,7 +97,6 @@ def patch_namespace(kernel_root: Path) -> None:
 
     patch_susfs_header_419(kernel_root)
     patch_susfs_fsnotify_419(kernel_root)
-    patch_sukisu_susfs_extra_work(kernel_root)
     upgrade_legacy_susfs_helpers(kernel_root)
     upgrade_legacy_mount_constants(kernel_root)
     upgrade_legacy_state_checks(kernel_root)
@@ -155,36 +154,6 @@ static int susfs_handle_sdcard_inode_event(struct fsnotify_mark *mark, u32 mask,
 #endif
 ''',
     )
-
-
-def patch_sukisu_susfs_extra_work(kernel_root: Path) -> None:
-    path = kernel_root / "KernelSU/kernel/hook/lsm_hook.c"
-    anchor = '''extern struct work_struct susfs_extra_works;
-
-static inline void ksu_handle_extra_susfs_work(void)
-{
-    if (work_pending(&susfs_extra_works))
-        return;
-
-    schedule_work(&susfs_extra_works);
-}
-'''
-    replacement = '''#ifdef CONFIG_KSU_SUSFS_SUS_PATH
-extern void susfs_run_sus_path_loop(void);
-#endif
-
-static inline void ksu_handle_extra_susfs_work(void)
-{
-    const struct cred *saved = override_creds(ksu_cred);
-
-#ifdef CONFIG_KSU_SUSFS_SUS_PATH
-    susfs_run_sus_path_loop();
-#endif
-
-    revert_creds(saved);
-}
-'''
-    replace_once(path, anchor, replacement)
 
 
 def upgrade_legacy_susfs_helpers(kernel_root: Path) -> None:

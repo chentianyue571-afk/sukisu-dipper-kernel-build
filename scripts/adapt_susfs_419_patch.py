@@ -114,7 +114,7 @@ def upgrade_legacy_state_checks(kernel_root: Path) -> None:
         "INODE_STATE_SUS_KSTAT": "AS_FLAGS_SUS_KSTAT",
         "INODE_STATE_OPEN_REDIRECT": "AS_FLAGS_OPEN_REDIRECT",
     }
-    expression = r"[A-Za-z_][A-Za-z0-9_]*(?:->[A-Za-z_][A-Za-z0-9_]*)+"
+    expression = r"[A-Za-z_][A-Za-z0-9_]*(?:->[A-Za-z_][A-Za-z0-9_]*)*"
 
     for relative_path in files:
         path = kernel_root / relative_path

@@ -15,6 +15,15 @@ def replace_once(path: str, anchor: str, replacement: str) -> None:
     source_path.write_text(source.replace(anchor, replacement, 1))
 
 
+def replace_all(path: str, anchor: str, replacement: str) -> None:
+    source_path = Path(path)
+    source = source_path.read_text()
+    count = source.count(anchor)
+    if count < 1:
+        raise SystemExit(f"{path}: expected at least one anchor")
+    source_path.write_text(source.replace(anchor, replacement))
+
+
 replace_once(
     "fs/exec.c",
     "static int do_execveat_common(int fd, struct filename *filename,\n",
@@ -93,7 +102,7 @@ for call in (
     "ksu_selinux_hide_handle_post_fs_data();",
     "ksu_selinux_hide_handle_second_stage();",
 ):
-    replace_once(
+    replace_all(
         "KernelSU/kernel/runtime/ksud.c",
         f"    {call}\n",
         f"""#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0)

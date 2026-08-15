@@ -97,6 +97,8 @@ def patch_namespace(kernel_root: Path) -> None:
 
     patch_susfs_header_419(kernel_root)
     patch_susfs_fsnotify_419(kernel_root)
+    patch_sukisu_susfs_extra_work(kernel_root)
+    upgrade_legacy_susfs_helpers(kernel_root)
     upgrade_legacy_mount_constants(kernel_root)
     upgrade_legacy_state_checks(kernel_root)
 
@@ -153,6 +155,136 @@ static int susfs_handle_sdcard_inode_event(struct fsnotify_mark *mark, u32 mask,
 #endif
 ''',
     )
+
+
+def patch_sukisu_susfs_extra_work(kernel_root: Path) -> None:
+    path = kernel_root / "KernelSU/kernel/hook/lsm_hook.c"
+    anchor = '''extern struct work_struct susfs_extra_works;
+
+static inline void ksu_handle_extra_susfs_work(void)
+{
+    if (work_pending(&susfs_extra_works))
+        return;
+
+    schedule_work(&susfs_extra_works);
+}
+'''
+    replacement = '''#ifdef CONFIG_KSU_SUSFS_SUS_PATH
+extern void susfs_run_sus_path_loop(void);
+#endif
+
+static inline void ksu_handle_extra_susfs_work(void)
+{
+    const struct cred *saved = override_creds(ksu_cred);
+
+#ifdef CONFIG_KSU_SUSFS_SUS_PATH
+    susfs_run_sus_path_loop();
+#endif
+
+    revert_creds(saved);
+}
+'''
+    replace_once(path, anchor, replacement)
+
+
+def upgrade_legacy_susfs_helpers(kernel_root: Path) -> None:
+    path = kernel_root / "fs/namei.c"
+    replace_once(
+        path,
+        "extern struct filename* susfs_get_redirected_path(unsigned long ino);\n",
+        "extern struct filename *susfs_open_redirect_spoof_do_sys_openat(struct inode *inode);\n",
+    )
+    replace_once(
+        path,
+        "susfs_get_redirected_path(filp->f_inode->i_ino)",
+        "susfs_open_redirect_spoof_do_sys_openat(filp->f_inode)",
+    )
+
+    path = kernel_root / "fs/proc/task_mmu.c"
+    replace_once(
+        path,
+        "extern void susfs_sus_ino_for_show_map_vma(unsigned long ino, dev_t *out_dev, unsigned long *out_ino);\n",
+        "extern void susfs_sus_kstat_spoof_show_map_vma(struct inode *inode, dev_t *out_dev, unsigned long *out_ino);\n",
+    )
+    replace_once(
+        path,
+        "susfs_sus_ino_for_show_map_vma(inode->i_ino, &dev, &ino);",
+        "susfs_sus_kstat_spoof_show_map_vma((struct inode *)inode, &dev, &ino);",
+    )
+
+    path = kernel_root / "fs/stat.c"
+    replace_once(
+        path,
+        "extern void susfs_sus_ino_for_generic_fillattr(unsigned long ino, struct kstat *stat);\n",
+        "extern void susfs_sus_kstat_spoof_generic_fillattr(struct inode *inode, struct kstat *stat);\n",
+    )
+    replace_once(
+        path,
+        "susfs_sus_ino_for_generic_fillattr(inode->i_ino, stat);",
+        "susfs_sus_kstat_spoof_generic_fillattr(inode, stat);",
+    )
+
+    upgrade_legacy_readdir_helper(kernel_root)
+
+
+def upgrade_legacy_readdir_helper(kernel_root: Path) -> None:
+    path = kernel_root / "fs/readdir.c"
+    replace_once(
+        path,
+        "extern int susfs_sus_ino_for_filldir64(unsigned long ino);\n",
+        '''extern bool susfs_is_inode_sus_path(struct inode *inode);
+
+static bool susfs_should_hide_inode(struct super_block *sb, unsigned long ino)
+{
+	struct inode *inode = ilookup(sb, ino);
+	bool hide = false;
+
+	if (inode) {
+		hide = susfs_is_inode_sus_path(inode);
+		iput(inode);
+	}
+	return hide;
+}
+''',
+    )
+
+    for struct_name in (
+        "readdir_callback",
+        "getdents_callback",
+        "getdents_callback64",
+        "compat_readdir_callback",
+        "compat_getdents_callback",
+    ):
+        anchor = f"struct {struct_name} {{\n\tstruct dir_context ctx;\n"
+        replacement = anchor + '''#ifdef CONFIG_KSU_SUSFS_SUS_PATH
+	struct super_block *susfs_sb;
+#endif
+'''
+        replace_once(path, anchor, replacement)
+
+    source = path.read_text()
+    old_call = "susfs_sus_ino_for_filldir64(ino)"
+    if source.count(old_call) != 4:
+        raise SystemExit(
+            f"{path}: expected four legacy readdir calls, "
+            f"found {source.count(old_call)}"
+        )
+    source = source.replace(
+        old_call,
+        "susfs_should_hide_inode(buf->susfs_sb, ino)",
+    )
+
+    anchor = "\terror = iterate_dir(f.file, &buf.ctx);\n"
+    if source.count(anchor) != 5:
+        raise SystemExit(
+            f"{path}: expected five iterate_dir calls, found {source.count(anchor)}"
+        )
+    replacement = '''#ifdef CONFIG_KSU_SUSFS_SUS_PATH
+	buf.susfs_sb = file_inode(f.file)->i_sb;
+#endif
+	error = iterate_dir(f.file, &buf.ctx);
+'''
+    path.write_text(source.replace(anchor, replacement))
 
 
 def upgrade_legacy_mount_constants(kernel_root: Path) -> None:

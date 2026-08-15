@@ -159,4 +159,4 @@ for path, needles in checks.items():
         if source.count(needle) != 1:
             raise SystemExit(f"{path}: hook verification failed for {needle}")
 
-print("Applied and verified SukiSU v3.2.0 manual hooks")
+print("Applied and verified SukiSU manual hooks")

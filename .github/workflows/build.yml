@@ -9,8 +9,8 @@ permissions:
 env:
   KERNEL_REPOSITORY: duckyduckG/android_kernel_xiaomi_sdm845_419
   KERNEL_COMMIT: 2e1cfd38e5f3b53351d3d59c797d14ff7f050611
-  SUKISU_VERSION: v3.2.0
-  SUKISU_COMMIT: 97e1250d11c2e34ccea25b20d6e56321aa45eff4
+  SUKISU_VERSION: builtin-2025.06.12
+  SUKISU_COMMIT: ff328ed65adf1e03f2b4f6b06173ec653bfa1bd6
   SUSFS_COMMIT: 001e69919c6271f690fd00b17e4c721c9e599152
   SUSFS_VERSION: v1.5.5
   ANYKERNEL_COMMIT: e4b1bb25ca2aabcfd57f694a5998d87130701b71
@@ -71,7 +71,15 @@ jobs:
             bc bison build-essential ccache curl flex gcc-aarch64-linux-gnu \
             gcc-arm-linux-gnueabi libelf-dev libssl-dev lld llvm python3 zip
 
+      - name: Restore Android 16 Clang cache
+        id: clang-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: clang
+          key: android-clang-linux-x86-${{ env.CLANG_VERSION }}
+
       - name: Download Android 16 Clang
+        if: steps.clang-cache.outputs.cache-hit != 'true'
         run: |
           mkdir -p clang
           for branch in android16-qpr2-release android16-release main-release; do
@@ -82,6 +90,18 @@ jobs:
               break
             fi
           done
+          test -x clang/bin/clang
+          clang/bin/clang --version
+
+      - name: Save Android 16 Clang cache
+        if: steps.clang-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: clang
+          key: android-clang-linux-x86-${{ env.CLANG_VERSION }}
+
+      - name: Verify Android 16 Clang
+        run: |
           test -x clang/bin/clang
           clang/bin/clang --version
 

@@ -91,8 +91,11 @@ jobs:
           cp "$GITHUB_WORKSPACE/susfs/kernel_patches/fs/susfs.c" fs/susfs.c
           cp "$GITHUB_WORKSPACE/susfs/kernel_patches/include/linux/susfs.h" include/linux/susfs.h
           cp "$GITHUB_WORKSPACE/susfs/kernel_patches/include/linux/susfs_def.h" include/linux/susfs_def.h
-          git apply --check "$GITHUB_WORKSPACE/susfs/kernel_patches/50_add_susfs_in_kernel-4.19.patch"
-          git apply "$GITHUB_WORKSPACE/susfs/kernel_patches/50_add_susfs_in_kernel-4.19.patch"
+          patch --dry-run --forward --fuzz=3 -p1 \
+            < "$GITHUB_WORKSPACE/susfs/kernel_patches/50_add_susfs_in_kernel-4.19.patch"
+          patch --forward --fuzz=3 -p1 \
+            < "$GITHUB_WORKSPACE/susfs/kernel_patches/50_add_susfs_in_kernel-4.19.patch"
+          test -z "$(find . -name '*.rej' -print -quit)"
 
           ln -s ../KernelSU/kernel drivers/kernelsu
           printf '\nobj-$(CONFIG_KSU) += kernelsu/\n' >> drivers/Makefile

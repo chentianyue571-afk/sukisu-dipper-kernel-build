@@ -98,6 +98,38 @@ jobs:
               raise SystemExit("SukiSU namespace import anchor changed")
           replacement = "#ifdef MODULE_IMPORT_NS\n" + anchor + "\n#endif"
           path.write_text(source.replace(anchor, replacement, 1))
+
+          path = Path("KernelSU/kernel/throne_comm.c")
+          source = path.read_text()
+          anchor = """static const struct proc_ops uid_scanner_proc_ops = {
+              .proc_open = uid_scanner_open,
+              .proc_read = seq_read,
+          \t.proc_write = uid_scanner_write,
+              .proc_lseek = seq_lseek,
+              .proc_release = single_release,
+          };
+          """
+          if source.count(anchor) != 1:
+              raise SystemExit("SukiSU proc_ops anchor changed")
+          replacement = """#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 6, 0)
+          static const struct proc_ops uid_scanner_proc_ops = {
+              .proc_open = uid_scanner_open,
+              .proc_read = seq_read,
+          \t.proc_write = uid_scanner_write,
+              .proc_lseek = seq_lseek,
+              .proc_release = single_release,
+          };
+          #else
+          static const struct file_operations uid_scanner_proc_ops = {
+              .open = uid_scanner_open,
+              .read = seq_read,
+          \t.write = uid_scanner_write,
+              .llseek = seq_lseek,
+              .release = single_release,
+          };
+          #endif
+          """
+          path.write_text(source.replace(anchor, replacement, 1))
           PY
           python3 "$GITHUB_WORKSPACE/scripts/apply_sukisu_manual_hooks.py"
 

@@ -58,7 +58,7 @@ header = root / "include/linux/susfs_def.h"
 replace_once(
     header,
     "#include <linux/bits.h>\n",
-    "#include <linux/bits.h>\n#include <linux/string.h>\n#include <linux/sched.h>\n#include <linux/uidgid.h>\n",
+    "#include <linux/bits.h>\n#include <linux/string.h>\n#include <linux/sched.h>\n#include <linux/cred.h>\n#include <linux/uidgid.h>\n",
 )
 anchor = "#endif // #ifndef KSU_SUSFS_DEF_H"
 compat = '''
@@ -119,6 +119,14 @@ static inline void ksu_handle_extra_susfs_work(void)
 replace_once(lsm, anchor, replacement)
 
 dispatch = root / "KernelSU/kernel/supercall/dispatch.c"
+replace_once(
+    dispatch,
+    '''#ifdef CONFIG_KSU_SUSFS
+            susfs_start_sdcard_monitor_fn();
+#endif
+''',
+    "",
+)
 source = dispatch.read_text()
 start_marker = "#ifdef CONFIG_KSU_SUSFS\nint ksu_handle_sys_reboot(int magic1, int magic2, unsigned int cmd, void __user **arg)\n"
 end_marker = "#endif\n\nstatic int do_nuke_ext4_sysfs"

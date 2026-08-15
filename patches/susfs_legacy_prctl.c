@@ -1,14 +1,19 @@
 #include <linux/cred.h>
 #include <linux/susfs.h>
 #include <linux/uaccess.h>
+#include <linux/version.h>
 
-#include "infra/kernel_compat.h"
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 0, 0)
+#define susfs_access_ok(addr, size) access_ok(addr, size)
+#else
+#define susfs_access_ok(addr, size) access_ok(VERIFY_WRITE, addr, size)
+#endif
 
 #define KERNEL_SU_OPTION 0xDEADBEEF
 
 static void susfs_reply(unsigned long arg5, int error)
 {
-    if (arg5 && ksu_access_ok((void __user *)arg5, sizeof(error)))
+    if (arg5 && susfs_access_ok((void __user *)arg5, sizeof(error)))
         copy_to_user((void __user *)arg5, &error, sizeof(error));
 }
 

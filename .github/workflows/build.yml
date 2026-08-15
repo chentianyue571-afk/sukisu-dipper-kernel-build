@@ -90,6 +90,14 @@ jobs:
               raise SystemExit("drivers/Kconfig has no endmenu anchor")
           head, tail = source.rsplit(anchor, 1)
           path.write_text(head + 'source "drivers/kernelsu/Kconfig"\n\n' + anchor + tail)
+
+          path = Path("KernelSU/kernel/ksu.c")
+          source = path.read_text()
+          anchor = "MODULE_IMPORT_NS(VFS_internal_I_am_really_a_filesystem_and_am_NOT_a_driver);"
+          if source.count(anchor) != 1:
+              raise SystemExit("SukiSU namespace import anchor changed")
+          replacement = "#ifdef MODULE_IMPORT_NS\n" + anchor + "\n#endif"
+          path.write_text(source.replace(anchor, replacement, 1))
           PY
           python3 "$GITHUB_WORKSPACE/scripts/apply_sukisu_manual_hooks.py"
 

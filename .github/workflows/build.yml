@@ -91,11 +91,16 @@ jobs:
           cp "$GITHUB_WORKSPACE/susfs/kernel_patches/fs/susfs.c" fs/susfs.c
           cp "$GITHUB_WORKSPACE/susfs/kernel_patches/include/linux/susfs.h" include/linux/susfs.h
           cp "$GITHUB_WORKSPACE/susfs/kernel_patches/include/linux/susfs_def.h" include/linux/susfs_def.h
+          python3 "$GITHUB_WORKSPACE/scripts/adapt_susfs_419_patch.py" prepare \
+            "$GITHUB_WORKSPACE/susfs/kernel_patches/50_add_susfs_in_kernel-4.19.patch" \
+            /tmp/susfs-4.19-lineage.patch
           patch --dry-run --forward --fuzz=3 -p1 \
-            < "$GITHUB_WORKSPACE/susfs/kernel_patches/50_add_susfs_in_kernel-4.19.patch"
+            < /tmp/susfs-4.19-lineage.patch
           patch --forward --fuzz=3 -p1 \
-            < "$GITHUB_WORKSPACE/susfs/kernel_patches/50_add_susfs_in_kernel-4.19.patch"
+            < /tmp/susfs-4.19-lineage.patch
           test -z "$(find . -name '*.rej' -print -quit)"
+          python3 "$GITHUB_WORKSPACE/scripts/adapt_susfs_419_patch.py" \
+            patch-namespace "$PWD"
 
           ln -s ../KernelSU/kernel drivers/kernelsu
           printf '\nobj-$(CONFIG_KSU) += kernelsu/\n' >> drivers/Makefile

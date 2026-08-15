@@ -1,4 +1,6 @@
 #include <linux/cred.h>
+#include <linux/mount.h>
+#include <linux/namei.h>
 #include <linux/susfs.h>
 #include <linux/uaccess.h>
 #include <linux/version.h>
@@ -10,6 +12,41 @@
 #endif
 
 #define KERNEL_SU_OPTION 0xDEADBEEF
+
+#ifdef CONFIG_KSU_SUSFS_TRY_UMOUNT
+extern int path_umount(struct path *path, int flags);
+extern bool susfs_is_mnt_devname_ksu(struct path *path);
+
+void ksu_try_umount(const char *mnt, bool check_mnt, int flags, uid_t uid)
+{
+    struct path path;
+
+    (void)uid;
+
+    if (kern_path(mnt, 0, &path))
+        return;
+
+    if (path.dentry != path.mnt->mnt_root ||
+        (check_mnt && !susfs_is_mnt_devname_ksu(&path))) {
+        path_put(&path);
+        return;
+    }
+
+    path_umount(&path, flags);
+}
+
+void susfs_try_umount_all(uid_t uid)
+{
+    susfs_try_umount(uid);
+    ksu_try_umount("/system", true, 0, uid);
+    ksu_try_umount("/system_ext", true, 0, uid);
+    ksu_try_umount("/vendor", true, 0, uid);
+    ksu_try_umount("/product", true, 0, uid);
+    ksu_try_umount("/odm", true, 0, uid);
+    ksu_try_umount("/data/adb/modules", false, MNT_DETACH, uid);
+    ksu_try_umount("/debug_ramdisk", true, MNT_DETACH, uid);
+}
+#endif
 
 static void susfs_reply(unsigned long arg5, int error)
 {

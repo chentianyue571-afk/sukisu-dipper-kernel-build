@@ -89,6 +89,19 @@ replace_once(
 	if ((flags &""",
 )
 
+for call in (
+    "ksu_selinux_hide_handle_post_fs_data();",
+    "ksu_selinux_hide_handle_second_stage();",
+):
+    replace_once(
+        "KernelSU/kernel/runtime/ksud.c",
+        f"    {call}\n",
+        f"""#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0)
+    {call}
+#endif
+""",
+    )
+
 checks = {
     "fs/exec.c": ["ksu_handle_execveat(&fd"],
     "fs/open.c": ["ksu_handle_faccessat(&dfd"],

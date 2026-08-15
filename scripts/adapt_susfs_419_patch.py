@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import argparse
+import re
 from pathlib import Path
 
 
@@ -93,6 +94,66 @@ def patch_namespace(kernel_root: Path) -> None:
 #endif
 '''
     replace_once(path, anchor, replacement)
+
+    upgrade_legacy_state_checks(kernel_root)
+
+
+def upgrade_legacy_state_checks(kernel_root: Path) -> None:
+    files = [
+        "fs/dcache.c",
+        "fs/namei.c",
+        "fs/notify/fdinfo.c",
+        "fs/proc/fd.c",
+        "fs/proc/task_mmu.c",
+        "fs/readdir.c",
+        "fs/stat.c",
+        "fs/statfs.c",
+    ]
+    inode_flags = {
+        "INODE_STATE_SUS_PATH": "AS_FLAGS_SUS_PATH",
+        "INODE_STATE_SUS_KSTAT": "AS_FLAGS_SUS_KSTAT",
+        "INODE_STATE_OPEN_REDIRECT": "AS_FLAGS_OPEN_REDIRECT",
+    }
+    expression = r"[A-Za-z_][A-Za-z0-9_]*(?:->[A-Za-z_][A-Za-z0-9_]*)+"
+
+    for relative_path in files:
+        path = kernel_root / relative_path
+        source = path.read_text()
+        source = source.replace(
+            "current->susfs_task_state & TASK_STRUCT_NON_ROOT_USER_APP_PROC",
+            "susfs_is_current_proc_umounted_app()",
+        )
+        for old_flag, new_flag in inode_flags.items():
+            source = re.sub(
+                rf"({expression})->i_state & {old_flag}",
+                rf"test_bit({new_flag}, &\1->i_mapping->flags)",
+                source,
+            )
+        source = re.sub(
+            rf"({expression})->i_state & INODE_STATE_SUS_MOUNT",
+            "false",
+            source,
+        )
+        if relative_path == "fs/statfs.c":
+            source = source.replace(
+                "susfs_is_current_proc_umounted_app()",
+                "susfs_is_current_proc_umounted()",
+            )
+        path.write_text(source)
+
+    for relative_path in files:
+        source = (kernel_root / relative_path).read_text()
+        for legacy_name in (
+            "TASK_STRUCT_NON_ROOT_USER_APP_PROC",
+            "INODE_STATE_SUS_PATH",
+            "INODE_STATE_SUS_KSTAT",
+            "INODE_STATE_OPEN_REDIRECT",
+            "INODE_STATE_SUS_MOUNT",
+        ):
+            if legacy_name in source:
+                raise SystemExit(
+                    f"{relative_path}: legacy SUSFS state remains: {legacy_name}"
+                )
 
 
 def main() -> None:

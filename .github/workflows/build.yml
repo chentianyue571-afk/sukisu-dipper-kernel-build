@@ -194,6 +194,32 @@ jobs:
               raise SystemExit("SukiSU get_policydb anchor changed")
           path.write_text(source.replace(anchor, replacement, 1))
 
+          path = Path("KernelSU/kernel/core_hook.c")
+          source = path.read_text()
+          anchor = """static void ksu_umount_mnt(struct path *path, int flags)
+          {
+          \tint err = path_umount(path, flags);
+          \tif (err) {
+          \t\tpr_info("umount %s failed: %d\\n", path->dentry->d_iname, err);
+          \t}
+          }
+          """
+          replacement = """static void ksu_umount_mnt(struct path *path, int flags)
+          {
+          #if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 9, 0) || defined(KSU_UMOUNT)
+          \tint err = path_umount(path, flags);
+          \tif (err) {
+          \t\tpr_info("umount %s failed: %d\\n", path->dentry->d_iname, err);
+          \t}
+          #else
+          \tpath_put(path);
+          #endif
+          }
+          """
+          if source.count(anchor) != 1:
+              raise SystemExit("SukiSU path_umount anchor changed")
+          path.write_text(source.replace(anchor, replacement, 1))
+
           objsec = Path("security/selinux/include/objsec.h").read_text()
           if " current_sid(void)" not in objsec:
               raise SystemExit("kernel current_sid compatibility anchor changed")

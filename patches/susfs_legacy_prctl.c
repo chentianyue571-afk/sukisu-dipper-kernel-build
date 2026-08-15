@@ -13,6 +13,10 @@
 
 #define KERNEL_SU_OPTION 0xDEADBEEF
 
+#ifndef MNT_DETACH
+#define MNT_DETACH 2
+#endif
+
 #ifdef CONFIG_KSU_SUSFS_TRY_UMOUNT
 extern int path_umount(struct path *path, int flags);
 extern bool susfs_is_mnt_devname_ksu(struct path *path);

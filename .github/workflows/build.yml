@@ -80,6 +80,45 @@ jobs:
           tar -xzf clang.tar.gz -C clang
           clang/bin/clang --version
 
+      - name: Restore Elliptic AFE state definition
+        working-directory: kernel
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("techpack/audio/dsp/q6afe.c")
+          source = path.read_text()
+
+          if "afe_ultrasound_state_t elus_afe" not in source:
+              header_anchor = '#include "q6afecal-hwdep.h"\n'
+              symbol_anchor = "EXPORT_SYMBOL(afe_set_lsm_afe_port_id);\n"
+              header = """
+
+          #if defined(CONFIG_MACH_XIAOMI_SDM845)
+          #include <dsp/apr_elliptic.h>
+          #endif
+          """
+              symbol = """
+
+          #if defined(CONFIG_MACH_XIAOMI_SDM845)
+          afe_ultrasound_state_t elus_afe = {
+              .ptr_apr = &this_afe.apr,
+              .ptr_status = &this_afe.status,
+              .ptr_state = &this_afe.state,
+              .ptr_wait = this_afe.wait,
+              .timeout_ms = TIMEOUT_MS,
+          };
+          EXPORT_SYMBOL(elus_afe);
+          #endif
+
+          """
+              if header_anchor not in source or symbol_anchor not in source:
+                  raise SystemExit("q6afe.c layout changed; refusing unsafe patch")
+              source = source.replace(header_anchor, header_anchor + header, 1)
+              source = source.replace(symbol_anchor, symbol + symbol_anchor, 1)
+              path.write_text(source)
+          PY
+
       - name: Configure dipper with SukiSU
         working-directory: kernel
         env:

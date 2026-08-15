@@ -43,12 +43,11 @@ jobs:
           fetch-depth: 1
 
       - name: Check out SUSFS for Linux 4.19
-        uses: actions/checkout@v4
-        with:
-          repository: simonpunk/susfs4ksu
-          ref: ${{ env.SUSFS_COMMIT }}
-          path: susfs
-          fetch-depth: 1
+        run: |
+          git init susfs
+          git -C susfs remote add origin https://gitlab.com/simonpunk/susfs4ksu.git
+          git -C susfs fetch --depth=1 origin "$SUSFS_COMMIT"
+          git -C susfs checkout --detach FETCH_HEAD
 
       - name: Check out pinned AnyKernel3
         uses: actions/checkout@v4

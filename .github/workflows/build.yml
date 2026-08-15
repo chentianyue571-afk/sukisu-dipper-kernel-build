@@ -130,6 +130,16 @@ jobs:
           #endif
           """
           path.write_text(source.replace(anchor, replacement, 1))
+
+          objsec = Path("security/selinux/include/objsec.h").read_text()
+          if " current_sid(void)" not in objsec:
+              raise SystemExit("kernel current_sid compatibility anchor changed")
+          path = Path("KernelSU/kernel/Makefile")
+          source = path.read_text()
+          flag = "ccflags-y += -DKSU_COMPAT_HAS_CURRENT_SID"
+          if flag in source:
+              raise SystemExit("SukiSU current_sid compatibility flag already present")
+          path.write_text(source + "\n" + flag + "\n")
           PY
           python3 "$GITHUB_WORKSPACE/scripts/apply_sukisu_manual_hooks.py"
 

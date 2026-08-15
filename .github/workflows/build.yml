@@ -11,6 +11,7 @@ env:
   KERNEL_COMMIT: 2e1cfd38e5f3b53351d3d59c797d14ff7f050611
   SUKISU_VERSION: v3.2.0
   SUKISU_COMMIT: 0af1ab28450a1df548850b4a05ba82a5cbef478e
+  KERNELSU_COMPAT_COMMIT: b766b98513b5a7eb33bc1c4a76b5702bf1288f07
   ANYKERNEL_COMMIT: e4b1bb25ca2aabcfd57f694a5998d87130701b71
   CLANG_VERSION: r563880
 
@@ -40,6 +41,14 @@ jobs:
           path: kernel/KernelSU
           fetch-depth: 1
 
+      - name: Check out legacy non-GKI SELinux compatibility source
+        uses: actions/checkout@v4
+        with:
+          repository: tiann/KernelSU
+          ref: ${{ env.KERNELSU_COMPAT_COMMIT }}
+          path: compat-kernelsu
+          fetch-depth: 1
+
       - name: Check out pinned AnyKernel3
         uses: actions/checkout@v4
         with:
@@ -52,6 +61,7 @@ jobs:
         run: |
           test "$(git -C kernel rev-parse HEAD)" = "$KERNEL_COMMIT"
           test "$(git -C kernel/KernelSU rev-parse HEAD)" = "$SUKISU_COMMIT"
+          test "$(git -C compat-kernelsu rev-parse HEAD)" = "$KERNELSU_COMPAT_COMMIT"
           test "$(git -C ak3 rev-parse HEAD)" = "$ANYKERNEL_COMMIT"
 
       - name: Install build dependencies
@@ -80,6 +90,8 @@ jobs:
         run: |
           ln -s ../KernelSU/kernel drivers/kernelsu
           printf '\nobj-$(CONFIG_KSU) += kernelsu/\n' >> drivers/Makefile
+          cp "$GITHUB_WORKSPACE/compat-kernelsu/kernel/selinux/sepolicy.c" \
+            KernelSU/kernel/selinux/sepolicy.c
           python3 - <<'PY'
           from pathlib import Path
 
@@ -203,6 +215,7 @@ jobs:
             echo "commit=${KERNEL_COMMIT}"
             echo "sukisu_version=${SUKISU_VERSION}"
             echo "sukisu_commit=${SUKISU_COMMIT}"
+            echo "kernelsu_compat_commit=${KERNELSU_COMPAT_COMMIT}"
             echo "anykernel_commit=${ANYKERNEL_COMMIT}"
             echo "device=dipper"
             echo "kernel_release=$(make -s O=out ARCH=arm64 kernelrelease)"

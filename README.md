@@ -10,6 +10,11 @@ The build is pinned to commit
 manual hooks and KPM. SUSFS is intentionally omitted from this boot/root
 validation build.
 
+For Linux 4.19 SELinux policy structures, the build restores only
+`kernel/selinux/sepolicy.c` from KernelSU `v0.9.5` commit `b766b985`. SukiSU
+v3.2.0 removed those legacy compatibility branches while retaining the same
+public policy helper interface.
+
 Run **Actions > Build exact LineageOS SukiSU kernel for Xiaomi Mi 8 > Run
 workflow**. Download the `SukiSU-dipper-Lineage23.2-exact-root-v3` artifact
 after the job succeeds.

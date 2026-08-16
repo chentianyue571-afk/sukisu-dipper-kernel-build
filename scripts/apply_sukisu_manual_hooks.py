@@ -89,6 +89,58 @@ extern int ksu_handle_stat(int *dfd,
 
 replace_once(
     "kernel/sys.c",
+    "long __sys_setresuid(uid_t ruid, uid_t euid, uid_t suid)\n",
+    f"""#if {GUARD} && defined(CONFIG_KSU_SUSFS)
+extern int ksu_handle_setresuid(uid_t ruid, uid_t euid, uid_t suid);
+#endif
+
+long __sys_setresuid(uid_t ruid, uid_t euid, uid_t suid)
+""",
+)
+replace_once(
+    "kernel/sys.c",
+    """long __sys_setresuid(uid_t ruid, uid_t euid, uid_t suid)
+{
+	struct user_namespace *ns = current_user_ns();
+""",
+    f"""long __sys_setresuid(uid_t ruid, uid_t euid, uid_t suid)
+{{
+#if {GUARD} && defined(CONFIG_KSU_SUSFS)
+	ksu_handle_setresuid(ruid, euid, suid);
+#endif
+	struct user_namespace *ns = current_user_ns();
+""",
+)
+
+replace_once(
+    "kernel/reboot.c",
+    "SYSCALL_DEFINE4(reboot,",
+    f"""#if {GUARD}
+extern int ksu_handle_sys_reboot(int magic1, int magic2,
+                unsigned int cmd, void __user **arg);
+#endif
+
+SYSCALL_DEFINE4(reboot,""",
+)
+replace_once(
+    "kernel/reboot.c",
+    """	int ret = 0;
+
+	/* We only trust the superuser with rebooting the system. */
+""",
+    f"""	int ret = 0;
+
+#if {GUARD}
+	if (!ksu_handle_sys_reboot(magic1, magic2, cmd, &arg))
+		return 0;
+#endif
+
+	/* We only trust the superuser with rebooting the system. */
+""",
+)
+
+replace_once(
+    "kernel/sys.c",
     "SYSCALL_DEFINE5(prctl, int, option, unsigned long, arg2, unsigned long, arg3,\n",
     f"""#if {GUARD} && defined(CONFIG_KSU_SUSFS)
 extern int ksu_handle_susfs_prctl(int option, unsigned long cmd,
@@ -151,7 +203,8 @@ checks = {
     "fs/exec.c": ["ksu_handle_execveat(&fd"],
     "fs/open.c": ["ksu_handle_faccessat(&dfd"],
     "fs/stat.c": ["ksu_handle_stat(&dfd"],
-    "kernel/sys.c": ["ksu_handle_susfs_prctl(option"],
+    "kernel/sys.c": ["ksu_handle_setresuid(ruid", "ksu_handle_susfs_prctl(option"],
+    "kernel/reboot.c": ["ksu_handle_sys_reboot(magic1"],
 }
 for path, needles in checks.items():
     source = Path(path).read_text()

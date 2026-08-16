@@ -147,6 +147,28 @@ int ksu_handle_sys_reboot(int magic1, int magic2, unsigned int cmd, void __user 
 '''
 dispatch.write_text(source[:start] + replacement + source[end:])
 
+rules = root / "KernelSU/kernel/selinux/rules.c"
+replace_once(
+    rules,
+    '''out_flush:
+    smp_mb();
+    reset_avc_cache();
+#endif
+}
+''',
+    '''out_flush:
+    smp_mb();
+    reset_avc_cache();
+#ifdef CONFIG_KSU_SUSFS
+    susfs_set_batch_sid();
+#endif
+#endif
+}
+''',
+)
+if rules.read_text().count("susfs_set_batch_sid();") != 2:
+    raise SystemExit(f"{rules}: expected both modern and 4.19 SID initializers")
+
 makefile = root / "KernelSU/kernel/Makefile"
 with makefile.open("a") as stream:
     stream.write("\nobj-$(CONFIG_KSU_SUSFS) += susfs_legacy_prctl.o\n")

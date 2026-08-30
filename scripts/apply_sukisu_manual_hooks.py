@@ -96,7 +96,7 @@ ssize_t vfs_read(struct file *file, char __user *buf, size_t count, loff_t *pos)
 
 replace_once(
     "fs/stat.c",
-    "/**\n * vfs_statx - Get basic and extra attributes by filename\n",
+    "/**\n * vfs_statx_fd - Get the enhanced basic attributes by file descriptor\n",
     f"""#if {GUARD}
 extern int ksu_handle_stat(int *dfd,
                 const char __user **filename_user, int *flags);
@@ -104,7 +104,7 @@ extern void ksu_handle_vfs_fstat(int fd, loff_t *kstat_size_ptr);
 #endif
 
 /**
- * vfs_statx - Get basic and extra attributes by filename
+ * vfs_statx_fd - Get the enhanced basic attributes by file descriptor
 """,
 )
 

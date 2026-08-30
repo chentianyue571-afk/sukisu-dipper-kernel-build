@@ -218,18 +218,70 @@ replace_once(
 """,
 )
 
-for call in (
-    "ksu_selinux_hide_handle_post_fs_data();",
-    "ksu_selinux_hide_handle_second_stage();",
-):
-    replace_all(
-        "KernelSU/kernel/runtime/ksud.c",
-        f"    {call}\n",
-        f"""#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0)
-    {call}
+# SELinux hide backport for Linux 4.19: SukiSU compiles feature/selinux_hide.c
+# only on 5.10+, so re-enable it and adapt the 4.19 SELinux internals
+# (status page and its lock live in selinux_state.ss on 4.19).
+replace_once(
+    "KernelSU/kernel/ksu.c",
+    '#include "feature/sulog.c"\n#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0)\n#include "feature/selinux_hide.c"\n#endif\n#include "runtime/ksud.c"\n',
+    '#include "feature/sulog.c"\n#include "feature/selinux_hide.c"\n#include "runtime/ksud.c"\n',
+)
+replace_once(
+    "KernelSU/kernel/ksu.c",
+    "    ksu_adb_root_init();\n\n#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0)\n    ksu_selinux_hide_init();\n#endif\n",
+    "    ksu_adb_root_init();\n\n    ksu_selinux_hide_init();\n",
+)
+replace_all(
+    "KernelSU/kernel/feature/selinux_hide.c",
+    "    mutex_lock(&selinux_state.status_lock);\n",
+    "    mutex_lock(&selinux_state.ss->status_lock);\n",
+)
+replace_all(
+    "KernelSU/kernel/feature/selinux_hide.c",
+    "    mutex_unlock(&selinux_state.status_lock);\n",
+    "    mutex_unlock(&selinux_state.ss->status_lock);\n",
+)
+replace_once(
+    "KernelSU/kernel/feature/selinux_hide.c",
+    "    if (!selinux_state.status_page) {\n",
+    "    if (!selinux_state.ss->status_page) {\n",
+)
+replace_once(
+    "KernelSU/kernel/feature/selinux_hide.c",
+    "    struct selinux_kernel_status *status = page_address(selinux_state.status_page);\n",
+    "    struct selinux_kernel_status *status = page_address(selinux_state.ss->status_page);\n",
+)
+replace_once(
+    "KernelSU/kernel/feature/selinux_hide.c",
+    "    fake_state.initialized = true;\n    fake_state.policy = backup_sepolicy;\n",
+    """#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0)
+    fake_state.initialized = true;
+    fake_state.policy = backup_sepolicy;
 #endif
 """,
-    )
+)
+
+# Swap the /sys/fs/selinux/status page for app UIDs when SELinux hide is on.
+replace_once(
+    "security/selinux/selinuxfs.c",
+    "#include <linux/fs.h>\n",
+    "#include <linux/fs.h>\n#include <linux/cred.h>\n",
+)
+replace_once(
+    "security/selinux/selinuxfs.c",
+    "\tstruct page    *status = selinux_kernel_status_page(fsi->state);\n\n\tif (!status)\n",
+    """\tstruct page    *status = selinux_kernel_status_page(fsi->state);
+
+#ifdef CONFIG_KSU
+\textern bool ksu_selinux_hide_enabled;
+\textern struct page *fake_status;
+\tif (unlikely(ksu_selinux_hide_enabled) && current_uid().val >= 10000 && fake_status)
+\t\tstatus = fake_status;
+#endif
+
+\tif (!status)
+""",
+)
 
 replace_once(
     "KernelSU/kernel/sulog/event.c",
@@ -253,6 +305,16 @@ checks = {
     ],
     "kernel/sys.c": ["ksu_handle_setresuid(ruid", "ksu_handle_susfs_prctl(option"],
     "kernel/reboot.c": ["ksu_handle_sys_reboot(magic1"],
+    "KernelSU/kernel/ksu.c": [
+        '#include "feature/selinux_hide.c"',
+        "    ksu_selinux_hide_init();",
+    ],
+    "KernelSU/kernel/feature/selinux_hide.c": [
+        "if (!selinux_state.ss->status_page) {",
+        "page_address(selinux_state.ss->status_page)",
+    ],
+    "KernelSU/kernel/runtime/ksud.c": ["ksu_selinux_hide_handle_post_fs_data();"],
+    "security/selinux/selinuxfs.c": ["status = fake_status;"],
 }
 for path, needles in checks.items():
     source = Path(path).read_text()
@@ -260,4 +322,4 @@ for path, needles in checks.items():
         if source.count(needle) != 1:
             raise SystemExit(f"{path}: hook verification failed for {needle}")
 
-print("Applied and verified SukiSU manual hooks (v11: vfs_read + vfs_fstat)")
+print("Applied and verified SukiSU manual hooks (v12: vfs_read + vfs_fstat + selinux_hide 4.19)")

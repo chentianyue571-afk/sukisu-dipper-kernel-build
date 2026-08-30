@@ -251,6 +251,12 @@ replace_once(
     "    struct selinux_kernel_status *status = page_address(selinux_state.status_page);\n",
     "    struct selinux_kernel_status *status = page_address(selinux_state.ss->status_page);\n",
 )
+# Make KSU_FEATURE_SELINUX_HIDE available on 4.19 (it is 5.10+-gated upstream).
+replace_once(
+    "KernelSU/kernel/include/uapi/feature.h",
+    "    KSU_FEATURE_ADB_ROOT = 3,\n#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0)\n    KSU_FEATURE_SELINUX_HIDE = 4,\n#endif\n",
+    "    KSU_FEATURE_ADB_ROOT = 3,\n    KSU_FEATURE_SELINUX_HIDE = 4,\n",
+)
 replace_once(
     "KernelSU/kernel/feature/selinux_hide.c",
     "    fake_state.initialized = true;\n    fake_state.policy = backup_sepolicy;\n",
@@ -259,6 +265,38 @@ replace_once(
     fake_state.policy = backup_sepolicy;
 #endif
 """,
+)
+
+# On 4.19 there is no backup_sepolicy (5.10+ only); the status-page hide
+# does not need it, so only require it on 5.10+.
+replace_once(
+    "KernelSU/kernel/feature/selinux_hide.c",
+    "    pr_info(\"selinux_hide: init selinux hide\\n\");\n    if (!backup_sepolicy) {\n        pr_err(\"no backup sepolicy available, please save feature and reboot to retry!\\n\");\n        return -EAGAIN;\n    }\n",
+    """    pr_info("selinux_hide: init selinux hide\n");
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0)
+    if (!backup_sepolicy) {
+        pr_err("no backup sepolicy available, please save feature and reboot to retry!\n");
+        return -EAGAIN;
+    }
+#endif""",
+)
+replace_once(
+    "KernelSU/kernel/feature/selinux_hide.c",
+    "void ksu_selinux_hide_drop_backup_if_unused()\n{\n    mutex_lock(&selinux_hide_mutex);\n    if (!ksu_selinux_hide_running && backup_sepolicy) {\n        pr_info(\"selinux_hide is not enabled - drop backup_sepolicy\\n\");\n        sidtab_destroy(backup_sepolicy->sidtab);\n        kfree(backup_sepolicy->sidtab);\n        ksu_destroy_sepolicy(backup_sepolicy);\n        backup_sepolicy = NULL;\n    }\n    mutex_unlock(&selinux_hide_mutex);\n}",
+    """void ksu_selinux_hide_drop_backup_if_unused()
+{
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0)
+    mutex_lock(&selinux_hide_mutex);
+    if (!ksu_selinux_hide_running && backup_sepolicy) {
+        pr_info("selinux_hide is not enabled - drop backup_sepolicy\n");
+        sidtab_destroy(backup_sepolicy->sidtab);
+        kfree(backup_sepolicy->sidtab);
+        ksu_destroy_sepolicy(backup_sepolicy);
+        backup_sepolicy = NULL;
+    }
+    mutex_unlock(&selinux_hide_mutex);
+#endif
+}""",
 )
 
 # Swap the /sys/fs/selinux/status page for app UIDs when SELinux hide is on.
@@ -305,6 +343,7 @@ checks = {
     ],
     "kernel/sys.c": ["ksu_handle_setresuid(ruid", "ksu_handle_susfs_prctl(option"],
     "kernel/reboot.c": ["ksu_handle_sys_reboot(magic1"],
+    "KernelSU/kernel/include/uapi/feature.h": ["    KSU_FEATURE_SELINUX_HIDE = 4,"],
     "KernelSU/kernel/ksu.c": [
         '#include "feature/selinux_hide.c"',
         "    ksu_selinux_hide_init();",
@@ -322,4 +361,4 @@ for path, needles in checks.items():
         if source.count(needle) != 1:
             raise SystemExit(f"{path}: hook verification failed for {needle}")
 
-print("Applied and verified SukiSU manual hooks (v12: vfs_read + vfs_fstat + selinux_hide 4.19)")
+print("Applied and verified SukiSU manual hooks (v12b: vfs_read + vfs_fstat + selinux_hide 4.19)")

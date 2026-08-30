@@ -272,10 +272,10 @@ replace_once(
 replace_once(
     "KernelSU/kernel/feature/selinux_hide.c",
     "    pr_info(\"selinux_hide: init selinux hide\\n\");\n    if (!backup_sepolicy) {\n        pr_err(\"no backup sepolicy available, please save feature and reboot to retry!\\n\");\n        return -EAGAIN;\n    }\n",
-    """    pr_info("selinux_hide: init selinux hide\n");
+    """    pr_info("selinux_hide: init selinux hide\\n");
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0)
     if (!backup_sepolicy) {
-        pr_err("no backup sepolicy available, please save feature and reboot to retry!\n");
+        pr_err("no backup sepolicy available, please save feature and reboot to retry!\\n");
         return -EAGAIN;
     }
 #endif""",
@@ -288,7 +288,7 @@ replace_once(
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0)
     mutex_lock(&selinux_hide_mutex);
     if (!ksu_selinux_hide_running && backup_sepolicy) {
-        pr_info("selinux_hide is not enabled - drop backup_sepolicy\n");
+        pr_info("selinux_hide is not enabled - drop backup_sepolicy\\n");
         sidtab_destroy(backup_sepolicy->sidtab);
         kfree(backup_sepolicy->sidtab);
         ksu_destroy_sepolicy(backup_sepolicy);

@@ -75,11 +75,32 @@ replace_once(
 )
 
 replace_once(
+    "fs/read_write.c",
+    "ssize_t vfs_read(struct file *file, char __user *buf, size_t count, loff_t *pos)\n{\n\tssize_t ret;\n",
+    f"""#if {GUARD}
+extern bool ksu_vfs_read_hook __read_mostly;
+extern int ksu_handle_vfs_read(struct file **file_ptr, char __user **buf_ptr,
+                size_t *count_ptr, loff_t **pos);
+#endif
+
+ssize_t vfs_read(struct file *file, char __user *buf, size_t count, loff_t *pos)
+{{
+	ssize_t ret;
+
+#if {GUARD}
+	if (unlikely(ksu_vfs_read_hook))
+		ksu_handle_vfs_read(&file, &buf, &count, &pos);
+#endif
+""",
+)
+
+replace_once(
     "fs/stat.c",
     "/**\n * vfs_statx - Get basic and extra attributes by filename\n",
     f"""#if {GUARD}
 extern int ksu_handle_stat(int *dfd,
                 const char __user **filename_user, int *flags);
+extern void ksu_handle_vfs_fstat(int fd, loff_t *kstat_size_ptr);
 #endif
 
 /**
@@ -175,6 +196,30 @@ replace_once(
 	if ((flags &""",
 )
 
+replace_once(
+    "fs/stat.c",
+    "\t\terror = vfs_getattr(&f.file->f_path, stat,\n\t\t\t\t    request_mask, query_flags);\n\t\tfdput(f);\n",
+    f"""\t\terror = vfs_getattr(&f.file->f_path, stat,
+\t\t\t\t    request_mask, query_flags);
+#if {GUARD}
+\t\tif (!error)
+\t\t\tksu_handle_vfs_fstat(fd, &stat->size);
+#endif
+\t\tfdput(f);
+""",
+)
+replace_once(
+    "fs/stat.c",
+    "\terror = vfs_getattr(&path, stat, request_mask, flags);\n\tpath_put(&path);\n",
+    f"""\terror = vfs_getattr(&path, stat, request_mask, flags);
+#if {GUARD}
+\tif (!error)
+\t\tksu_handle_vfs_fstat(dfd, &stat->size);
+#endif
+\tpath_put(&path);
+""",
+)
+
 for call in (
     "ksu_selinux_hide_handle_post_fs_data();",
     "ksu_selinux_hide_handle_second_stage();",
@@ -202,7 +247,12 @@ replace_once(
 checks = {
     "fs/exec.c": ["ksu_handle_execveat(&fd"],
     "fs/open.c": ["ksu_handle_faccessat(&dfd"],
-    "fs/stat.c": ["ksu_handle_stat(&dfd"],
+    "fs/read_write.c": ["ksu_handle_vfs_read(&file"],
+    "fs/stat.c": [
+        "ksu_handle_stat(&dfd",
+        "ksu_handle_vfs_fstat(fd, &stat->size);",
+        "ksu_handle_vfs_fstat(dfd, &stat->size);",
+    ],
     "kernel/sys.c": ["ksu_handle_setresuid(ruid", "ksu_handle_susfs_prctl(option"],
     "kernel/reboot.c": ["ksu_handle_sys_reboot(magic1"],
 }
@@ -212,4 +262,4 @@ for path, needles in checks.items():
         if source.count(needle) != 1:
             raise SystemExit(f"{path}: hook verification failed for {needle}")
 
-print("Applied and verified SukiSU manual hooks")
+print("Applied and verified SukiSU manual hooks (v11: vfs_read + vfs_fstat)")

@@ -1,7 +1,10 @@
-name: Build exact LineageOS SukiSU kernel for Xiaomi Mi 8
+name: Build KernelSU v3.3.0 kernel for Xiaomi Mi 8 (LineageOS 23.2)
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - ksu-v3.3.0
 
 permissions:
   contents: read
@@ -9,17 +12,14 @@ permissions:
 env:
   KERNEL_REPOSITORY: duckyduckG/android_kernel_xiaomi_sdm845_419
   KERNEL_COMMIT: 2e1cfd38e5f3b53351d3d59c797d14ff7f050611
-  SUKISU_VERSION: v4.1.3-40796
-  SUKISU_COMMIT: 6c13a0695a1115e1000c998872b66f4ff5b2f11e
-  SUSFS_COMMIT: b4ae4d8a04396f8893670395e86f98d4e084d88e
-  SUSFS_419_BASE_COMMIT: 001e69919c6271f690fd00b17e4c721c9e599152
-  SUSFS_VERSION: v2.1.0
+  KSU_REPOSITORY: tiann/KernelSU
+  KSU_TAG: v3.3.0
   ANYKERNEL_COMMIT: e4b1bb25ca2aabcfd57f694a5998d87130701b71
   CLANG_VERSION: r563880
 
 jobs:
   build-dipper:
-    name: Build exact dipper SukiSU kernel
+    name: Build dipper KernelSU v3.3.0 kernel
     runs-on: ubuntu-24.04
     timeout-minutes: 120
 
@@ -27,7 +27,7 @@ jobs:
       - name: Check out build files
         uses: actions/checkout@v4
 
-      - name: Check out exact LineageOS kernel source
+      - name: Check out exact LineageOS 23.2 kernel source
         uses: actions/checkout@v4
         with:
           repository: ${{ env.KERNEL_REPOSITORY }}
@@ -35,25 +35,13 @@ jobs:
           path: kernel
           fetch-depth: 1
 
-      - name: Check out SukiSU Ultra
+      - name: Check out KernelSU v3.3.0
         uses: actions/checkout@v4
         with:
-          repository: SukiSU-Ultra/SukiSU-Ultra
-          ref: ${{ env.SUKISU_COMMIT }}
+          repository: ${{ env.KSU_REPOSITORY }}
+          ref: ${{ env.KSU_TAG }}
           path: kernel/KernelSU
           fetch-depth: 1
-
-      - name: Check out SUSFS for Linux 4.19
-        run: |
-          git init susfs
-          git -C susfs remote add origin https://gitlab.com/simonpunk/susfs4ksu.git
-          git -C susfs fetch --depth=1 origin "$SUSFS_COMMIT"
-          git -C susfs checkout --detach FETCH_HEAD
-
-          git init susfs-419-base
-          git -C susfs-419-base remote add origin https://gitlab.com/simonpunk/susfs4ksu.git
-          git -C susfs-419-base fetch --depth=1 origin "$SUSFS_419_BASE_COMMIT"
-          git -C susfs-419-base checkout --detach FETCH_HEAD
 
       - name: Check out pinned AnyKernel3
         uses: actions/checkout@v4
@@ -66,9 +54,7 @@ jobs:
       - name: Verify pinned sources
         run: |
           test "$(git -C kernel rev-parse HEAD)" = "$KERNEL_COMMIT"
-          test "$(git -C kernel/KernelSU rev-parse HEAD)" = "$SUKISU_COMMIT"
-          test "$(git -C susfs rev-parse HEAD)" = "$SUSFS_COMMIT"
-          test "$(git -C susfs-419-base rev-parse HEAD)" = "$SUSFS_419_BASE_COMMIT"
+          test "$(git -C kernel/KernelSU describe --tags --exact-match HEAD)" = "$KSU_TAG"
           test "$(git -C ak3 rev-parse HEAD)" = "$ANYKERNEL_COMMIT"
 
       - name: Install build dependencies
@@ -112,28 +98,13 @@ jobs:
           test -x clang/bin/clang
           clang/bin/clang --version
 
-      - name: Integrate SUSFS and SukiSU manual hooks
+      - name: Integrate KernelSU into 4.19 kernel
         working-directory: kernel
         run: |
-          cp "$GITHUB_WORKSPACE/susfs/kernel_patches/fs/susfs.c" fs/susfs.c
-          cp "$GITHUB_WORKSPACE/susfs/kernel_patches/include/linux/susfs.h" include/linux/susfs.h
-          cp "$GITHUB_WORKSPACE/susfs/kernel_patches/include/linux/susfs_def.h" include/linux/susfs_def.h
-          python3 "$GITHUB_WORKSPACE/scripts/adapt_susfs_419_patch.py" prepare \
-            "$GITHUB_WORKSPACE/susfs-419-base/kernel_patches/50_add_susfs_in_kernel-4.19.patch" \
-            /tmp/susfs-4.19-lineage.patch
-          patch --dry-run --forward --fuzz=3 -p1 \
-            < /tmp/susfs-4.19-lineage.patch
-          patch --forward --fuzz=3 -p1 \
-            < /tmp/susfs-4.19-lineage.patch
-          test -z "$(find . -name '*.rej' -print -quit)"
-          python3 "$GITHUB_WORKSPACE/scripts/adapt_susfs_419_patch.py" \
-            patch-namespace "$PWD"
-
           ln -s ../KernelSU/kernel drivers/kernelsu
           printf '\nobj-$(CONFIG_KSU) += kernelsu/\n' >> drivers/Makefile
           python3 - <<'PY'
           from pathlib import Path
-
           path = Path("drivers/Kconfig")
           source = path.read_text()
           anchor = "endmenu"
@@ -141,20 +112,10 @@ jobs:
               raise SystemExit("drivers/Kconfig has no endmenu anchor")
           head, tail = source.rsplit(anchor, 1)
           path.write_text(head + 'source "drivers/kernelsu/Kconfig"\n\n' + anchor + tail)
-
-          required = {
-              "KernelSU/kernel/Kconfig": "config KSU_SUSFS",
-              "KernelSU/kernel/supercall/dispatch.c": "CMD_SUSFS_SHOW_VERSION",
-              "KernelSU/kernel/Makefile": "SUSFS_VERSION",
-              "fs/Makefile": "CONFIG_KSU_SUSFS",
-              "fs/susfs.c": "susfs is initialized! version:",
-              "include/linux/susfs.h": '#define SUSFS_VERSION "v2.1.0"',
-          }
-          for path, needle in required.items():
-              if needle not in Path(path).read_text():
-                  raise SystemExit(f"SUSFS integration check failed: {path}: {needle}")
           PY
-          python3 "$GITHUB_WORKSPACE/scripts/apply_sukisu_manual_hooks.py"
+          test -f drivers/kernelsu/Kconfig
+          grep -q 'config KSU' drivers/kernelsu/Kconfig
+          grep -q 'kernelsu' drivers/Makefile
 
       - name: Configure dipper kernel
         working-directory: kernel
@@ -172,13 +133,11 @@ jobs:
 
           scripts/config --file out/.config \
             --enable KSU \
-            --enable KSU_SUSFS \
-            --disable KPM
+            --enable KPROBES
           make O=out olddefconfig
 
           grep -qx 'CONFIG_KSU=y' out/.config
-          grep -qx 'CONFIG_KSU_SUSFS=y' out/.config
-          grep -qx '# CONFIG_KPM is not set' out/.config
+          grep -qx 'CONFIG_KPROBES=y' out/.config
 
       - name: Build kernel
         working-directory: kernel
@@ -191,8 +150,24 @@ jobs:
           KBUILD_BUILD_USER: codex
           KBUILD_BUILD_HOST: github-actions
         run: |
+          set -o pipefail
           export PATH="$GITHUB_WORKSPACE/clang/bin:/usr/lib/ccache:$PATH"
-          make -j"$(nproc)" O=out KSU_VERSION=40796 Image.gz-dtb
+          make -j"$(nproc)" O=out Image.gz-dtb 2>&1 \
+            | tee "$GITHUB_WORKSPACE/build.log"
+
+      - name: Publish compiler failure summary
+        if: failure()
+        run: |
+          summary=$(grep -E 'error:|undefined reference|multiple definition|ld\.lld:' build.log \
+            | tail -n 20 \
+            | tr '\n' ';' \
+            | sed -e 's/%/%25/g' -e 's/\r/%0D/g')
+          if [ -z "$summary" ]; then
+            summary=$(tail -n 30 build.log \
+              | tr '\n' ';' \
+              | sed -e 's/%/%25/g' -e 's/\r/%0D/g')
+          fi
+          echo "::error file=kernel::$summary"
 
       - name: Verify compiled kernel
         working-directory: kernel
@@ -200,26 +175,18 @@ jobs:
           test -s out/arch/arm64/boot/Image
           test -s out/arch/arm64/boot/Image.gz-dtb
           strings out/arch/arm64/boot/Image > /tmp/dipper-kernel.strings
-          grep -m1 -E '/data/adb/ksud|KernelSU|SukiSU' /tmp/dipper-kernel.strings
-          grep -m1 -F 'susfs is initialized! version:' /tmp/dipper-kernel.strings
-          grep -m1 -F "$SUSFS_VERSION" /tmp/dipper-kernel.strings
+          grep -m1 -E '/data/adb/ksud|KernelSU' /tmp/dipper-kernel.strings
 
           {
             echo "source=${KERNEL_REPOSITORY}"
             echo "commit=${KERNEL_COMMIT}"
-            echo "sukisu_version=${SUKISU_VERSION}"
-            echo "sukisu_commit=${SUKISU_COMMIT}"
-            echo "susfs_version=${SUSFS_VERSION}"
-            echo "susfs_commit=${SUSFS_COMMIT}"
-            echo "susfs_419_base_commit=${SUSFS_419_BASE_COMMIT}"
+            echo "ksu_version=${KSU_TAG}"
             echo "anykernel_commit=${ANYKERNEL_COMMIT}"
             echo "device=dipper"
-            echo "ksu_driver_version=40796"
             echo "kernel_release=$(make -s O=out ARCH=arm64 kernelrelease)"
             echo "clang=$($GITHUB_WORKSPACE/clang/bin/clang --version | sed -n '1p')"
             echo "CONFIG_KSU=$(sed -n 's/^CONFIG_KSU=//p' out/.config)"
-            echo "CONFIG_KSU_SUSFS=$(sed -n 's/^CONFIG_KSU_SUSFS=//p' out/.config)"
-            echo "CONFIG_KPM=n"
+            echo "CONFIG_KPROBES=$(sed -n 's/^CONFIG_KPROBES=//p' out/.config)"
             sha256sum out/arch/arm64/boot/Image.gz-dtb
           } > "$GITHUB_WORKSPACE/BUILD_INFO.txt"
           cat "$GITHUB_WORKSPACE/BUILD_INFO.txt"
@@ -228,21 +195,26 @@ jobs:
         run: |
           cp kernel/out/arch/arm64/boot/Image.gz-dtb ak3/Image.gz-dtb
           cp packaging/anykernel.sh ak3/anykernel.sh
+          sed -i 's/\r$//' ak3/anykernel.sh
+          if grep -q $'\r' ak3/anykernel.sh; then
+            echo "anykernel.sh still contains CR characters" >&2
+            exit 1
+          fi
           rm -rf ak3/.git ak3/.github
           find ak3 -name placeholder -delete
           mkdir -p release
           cd ak3
-          zip -qr9 ../release/SukiSU-dipper-Lineage23.2-SUSFS-v2.1-noKPM-v5.zip . \
+          zip -qr9 ../release/KernelSU-dipper-Lineage23.2-v3.3.0.zip . \
             -x 'README.md' 'LICENSE'
           cd ..
           cp BUILD_INFO.txt release/
-          sha256sum release/SukiSU-dipper-Lineage23.2-SUSFS-v2.1-noKPM-v5.zip \
+          sha256sum release/KernelSU-dipper-Lineage23.2-v3.3.0.zip \
             | tee release/SHA256SUMS.txt
 
       - name: Upload flashable kernel
         uses: actions/upload-artifact@v4
         with:
-          name: SukiSU-dipper-Lineage23.2-SUSFS-v2.1-noKPM-v5
+          name: KernelSU-dipper-Lineage23.2-v3.3.0
           path: release/*
           if-no-files-found: error
           retention-days: 30

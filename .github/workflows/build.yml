@@ -122,22 +122,23 @@ jobs:
         run: |
           python3 - <<'PY'
           from pathlib import Path
-          # MODULE_IMPORT_NS() only exists since Linux 5.4; provide an empty shim on 4.19
-          guard = "\n#ifndef MODULE_IMPORT_NS\n#define MODULE_IMPORT_NS(ns)\n#endif\n"
+          # MODULE_IMPORT_NS() only exists since Linux 5.4; provide an empty shim on 4.19.
+          # Prepend at the TOP of each file: inserting after the last #include can land
+          # inside dead #if blocks (e.g. init.c's x86-only section) and never be seen.
+          guard = (
+              "#ifndef MODULE_IMPORT_NS\n"
+              "#define MODULE_IMPORT_NS(ns)\n"
+              "#endif\n"
+          )
           patched = []
-          for root in (Path("KernelSU/kernel"),):
-              for p in root.rglob("*.c"):
-                  s = p.read_text(errors="replace")
-                  if "MODULE_IMPORT_NS(" in s and "#ifndef MODULE_IMPORT_NS" not in s:
-                      lines = s.splitlines()
-                      incs = [i for i, l in enumerate(lines) if l.lstrip().startswith("#include")]
-                      if incs:
-                          lines.insert(incs[-1] + 1, guard.rstrip())
-                          p.write_text("\n".join(lines) + "\n")
-                          patched.append(str(p))
+          for p in list(Path("KernelSU/kernel").rglob("*.c")) + list(Path("KernelSU/kernel").rglob("*.h")):
+              s = p.read_text(errors="replace")
+              if "MODULE_IMPORT_NS(" in s and "#ifndef MODULE_IMPORT_NS" not in s:
+                  p.write_text(guard + s)
+                  patched.append(str(p))
           print("patched:", patched)
           PY
-          grep -rn 'MODULE_IMPORT_NS' KernelSU/kernel --include='*.c' -l | while read f; do
+          grep -rn 'MODULE_IMPORT_NS' KernelSU/kernel --include='*.c' --include='*.h' -l | while read f; do
             grep -q '#ifndef MODULE_IMPORT_NS' "$f" || { echo "guard missing in $f"; exit 1; }
           done
 

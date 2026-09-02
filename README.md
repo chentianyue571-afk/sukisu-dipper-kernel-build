@@ -1,23 +1,22 @@
-# SukiSU kernel build for Xiaomi Mi 8
+# KernelSU v3.3.0 kernel for Xiaomi Mi 8 (dipper)
 
-This repository builds a minimal source-integrated SukiSU kernel for `dipper`
-and packages it as an AnyKernel3 recovery ZIP.
+Builds a source-integrated **KernelSU v3.3.0** kernel for `dipper` from the
+`duckyduckG/android_kernel_xiaomi_sdm845_419` 4.19 kernel source (pinned to
+commit `2e1cfd38e5f3b53351d3d59c797d14ff7f050611`, matching the 2026-02-03
+LineageOS 23.2 build) and packages it as an AnyKernel3 recovery ZIP.
 
-The build is pinned to commit
-`2e1cfd38e5f3b53351d3d59c797d14ff7f050611` from the public
-`duckyduckG/android_kernel_xiaomi_sdm845_419` repository, matching the
-2026-02-03 LineageOS 23.2 build. It integrates SukiSU Ultra `v3.2.0` with
-manual hooks and KPM. SUSFS is intentionally omitted from this boot/root
-validation build.
+- Kernel source: `duckyduckG/android_kernel_xiaomi_sdm845_419` @ `2e1cfd38`
+- KernelSU: `tiann/KernelSU` @ `v3.3.0`
+- AnyKernel3: `osm0sis/AnyKernel3` @ `e4b1bb25`
+- Toolchain: Android 16 Clang `r563880`
 
-For Linux 4.19 SELinux policy structures, the build restores only
-`kernel/selinux/sepolicy.c` from KernelSU `v0.9.5` commit `b766b985`. SukiSU
-v3.2.0 removed those legacy compatibility branches while retaining the same
-public policy helper interface.
+## Usage
 
-Run **Actions > Build exact LineageOS SukiSU kernel for Xiaomi Mi 8 > Run
-workflow**. Download the `SukiSU-dipper-Lineage23.2-exact-root-v3` artifact
-after the job succeeds.
+Run **Actions > Build KernelSU v3.3.0 kernel for Xiaomi Mi 8 (LineageOS 23.2) >
+Run workflow** on branch `ksu-v3.3.0`, then download the
+`KernelSU-dipper-Lineage23.2-v3.3.0` artifact.
 
-Do not use this artifact on any device other than Xiaomi Mi 8 (`dipper`) or on
-a ROM that does not use the Xiaomi SDM845 4.19 kernel base.
+Flash the ZIP in TWRP **only on LineageOS 23.2** (the ROM that uses this 4.19
+kernel base). It is NOT compatible with the HarmonyOS ROM (4.9 kernel).
+
+After boot, install the KernelSU manager APK and grant root.
